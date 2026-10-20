@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "sourceHost": "dl2.soft98.ir",
+  "redirectHosts": ["dl2soft98.82.ir.cdn.ir", "edge11.82.ir.cdn.ir"],
+  "finalHost": "edge11.82.ir.cdn.ir",
+  "size": 3574116,
+  "sha256": "1bea6dd8e2befc9bb1ff1b090c9c8d6e954a390278980dc776df695ff9de6e02",
+  "ranges": true,
+  "segments": 4,
+  "referenceMatches": true
+}

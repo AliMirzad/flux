@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.mp4 binary
+*.ts linguist-language=TypeScript
+*.m4s binary

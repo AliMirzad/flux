@@ -1,0 +1,66 @@
+{
+  "source": "Locally synthesized canvas colors and oscillator tones; no third-party media.",
+  "chrome": "155.0.8059.82",
+  "bytes": 52973,
+  "sha256": "b401e2699b342d4e446ef5b8e6450b52de596c449e1bda37fd34227979297b07",
+  "fragments": 4,
+  "boxes": [
+    {
+      "type": "ftyp",
+      "size": 36
+    },
+    {
+      "type": "moov",
+      "size": 1210
+    },
+    {
+      "type": "moof",
+      "size": 644
+    },
+    {
+      "type": "mdat",
+      "size": 11819
+    },
+    {
+      "type": "moof",
+      "size": 700
+    },
+    {
+      "type": "mdat",
+      "size": 13513
+    },
+    {
+      "type": "moof",
+      "size": 684
+    },
+    {
+      "type": "mdat",
+      "size": 12996
+    },
+    {
+      "type": "moof",
+      "size": 604
+    },
+    {
+      "type": "mdat",
+      "size": 10767
+    }
+  ],
+  "markers": [
+    {
+      "at": 0.5,
+      "color": "red",
+      "toneHz": 440
+    },
+    {
+      "at": 2,
+      "color": "green",
+      "toneHz": 880
+    },
+    {
+      "at": 3.5,
+      "color": "blue",
+      "toneHz": 1320
+    }
+  ]
+}

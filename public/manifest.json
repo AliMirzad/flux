@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Flux — Download Manager",
+  "version": "0.7.0",
+  "minimum_chrome_version": "120",
+  "description": "Local, resumable downloads with verified parallel ranges. Keep the manager open during transfers.",
+  "permissions": [
+    "storage",
+    "downloads",
+    "contextMenus",
+    "alarms",
+    "activeTab",
+    "scripting",
+    "webRequest"
+  ],
+  "optional_permissions": ["notifications"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "Flux download manager" },
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src http: https:; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'"
+  }
+}

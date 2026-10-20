@@ -1,0 +1,38 @@
+{
+  "name": "flux-download-manager",
+  "version": "0.7.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && node scripts/build-background.mjs && node scripts/verify-package.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "format:check": "prettier --check src tests scripts public *.ts *.json *.html docs README.md",
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "benchmark": "node scripts/benchmark.mjs",
+    "release": "npm run build && node scripts/release.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "hash-wasm": "^4.12.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/chrome": "^0.1.24",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "^0.25.0",
+    "fake-indexeddb": "^6.2.4",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.0",
+    "vitest": "^5.0.5"
+  }
+}

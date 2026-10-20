@@ -1,0 +1,189 @@
+{
+  "date": "2026-10-19T11:46:27.388Z",
+  "chrome": "155.0.8059.82",
+  "size": 16777216,
+  "repetitions": 3,
+  "delay": 32,
+  "results": [
+    {
+      "mode": "native",
+      "seconds": 44.707204,
+      "mibps": 0.35788415665627404,
+      "cpuSeconds": 3.596430000000001,
+      "heapBytes": 0,
+      "maxActive": 1,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "native",
+      "seconds": 42.99393010000001,
+      "mibps": 0.3721455554955186,
+      "cpuSeconds": 1.6462219999999999,
+      "heapBytes": 0,
+      "maxActive": 1,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "native",
+      "seconds": 41.43273919999999,
+      "mibps": 0.38616804751349876,
+      "cpuSeconds": 1.2215909999999983,
+      "heapBytes": 0,
+      "maxActive": 1,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "1",
+      "seconds": 43.9917683,
+      "mibps": 0.3637044069446965,
+      "cpuSeconds": 12.796462999999996,
+      "heapBytes": 6016588,
+      "maxActive": 1,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "1",
+      "seconds": 43.818304900000015,
+      "mibps": 0.3651442025544898,
+      "cpuSeconds": 12.326654999999992,
+      "heapBytes": 8902468,
+      "maxActive": 1,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "1",
+      "seconds": 43.874414099999996,
+      "mibps": 0.3646772345160502,
+      "cpuSeconds": 12.161384999999996,
+      "heapBytes": 8088468,
+      "maxActive": 1,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "4",
+      "seconds": 11.293424699999974,
+      "mibps": 1.416753591140519,
+      "cpuSeconds": 4.083185000000022,
+      "heapBytes": 8120232,
+      "maxActive": 4,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "4",
+      "seconds": 11.246991500000004,
+      "mibps": 1.4226026577863062,
+      "cpuSeconds": 4.0047580000000025,
+      "heapBytes": 9964028,
+      "maxActive": 4,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "4",
+      "seconds": 11.245034400000003,
+      "mibps": 1.4228502493509487,
+      "cpuSeconds": 4.048754999999986,
+      "heapBytes": 10383692,
+      "maxActive": 4,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "8",
+      "seconds": 8.534954400000046,
+      "mibps": 1.8746438762461242,
+      "cpuSeconds": 3.287066999999979,
+      "heapBytes": 10692672,
+      "maxActive": 6,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "8",
+      "seconds": 8.519438599999994,
+      "mibps": 1.8780580213348814,
+      "cpuSeconds": 3.315925000000007,
+      "heapBytes": 7520408,
+      "maxActive": 6,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "8",
+      "seconds": 8.555198800000014,
+      "mibps": 1.8702078553685946,
+      "cpuSeconds": 3.6358680000000163,
+      "heapBytes": 8901984,
+      "maxActive": 6,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "16",
+      "seconds": 8.348403700000024,
+      "mibps": 1.9165340554865542,
+      "cpuSeconds": 3.2449370000000073,
+      "heapBytes": 8788724,
+      "maxActive": 6,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "16",
+      "seconds": 8.530132799999963,
+      "mibps": 1.8757035060462446,
+      "cpuSeconds": 3.6208659999999924,
+      "heapBytes": 10520992,
+      "maxActive": 6,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "16",
+      "seconds": 8.544314100000017,
+      "mibps": 1.8725903346647763,
+      "cpuSeconds": 3.3845830000000205,
+      "heapBytes": 10614616,
+      "maxActive": 6,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "adaptive",
+      "seconds": 19.44583890000003,
+      "mibps": 0.8227981360063604,
+      "cpuSeconds": 6.823921000000013,
+      "heapBytes": 10273284,
+      "maxActive": 4,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "adaptive",
+      "seconds": 19.420855899999967,
+      "mibps": 0.8238565839932949,
+      "cpuSeconds": 6.070948999999999,
+      "heapBytes": 7307468,
+      "maxActive": 4,
+      "verified": true,
+      "error": null
+    },
+    {
+      "mode": "adaptive",
+      "seconds": 20.10667570000002,
+      "mibps": 0.795755610660194,
+      "cpuSeconds": 7.290724000000026,
+      "heapBytes": 8865316,
+      "maxActive": 3,
+      "verified": true,
+      "error": null
+    }
+  ]
+}
