@@ -73,8 +73,20 @@ test.beforeAll(async () => {
   manager = await context.newPage();
   await manager.goto(`chrome-extension://${id}/manager.html`);
   await expect(manager.getByRole('heading', { name: 'All downloads.' })).toBeVisible();
+  // These tests cover automatic starts; the Add Download window has its own test below.
+  await manager.getByRole('button', { name: 'Settings', exact: true }).click();
+  await manager.locator('input[name="confirmCapture"]').uncheck();
+  await manager.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await manager.getByRole('button', { name: /All downloads/ }).click();
   site = await context.newPage();
   await site.goto(`${base}/capture-page`);
+  await site.evaluate((url) => {
+    const frame = document.createElement('iframe');
+    frame.id = 'existing-download-frame';
+    frame.src = url;
+    document.body.append(frame);
+  }, `${base}/capture-page?existing-frame=1`);
+  await expect(site.frameLocator('#existing-download-frame').locator('#normal')).toBeVisible();
 });
 test.afterAll(async () => {
   await context?.close();
@@ -84,6 +96,22 @@ test.afterAll(async () => {
 test('one-time enable immediately captures normal, download-attribute and cross-origin links in existing tabs without native duplicates', async () => {
   await manager.getByRole('button', { name: 'Enable automatic downloads', exact: true }).click();
   await manager.evaluate(() => chrome.runtime.sendMessage({ type: 'configure-offers' }));
+  await manager.getByRole('button', { name: 'Settings', exact: true }).click();
+  await manager.getByRole('button', { name: 'Check download integration', exact: true }).click();
+  await expect(manager.getByRole('status')).toContainText(
+    'Automatic capture: on. Website access: granted. Link listener: registered.',
+  );
+  await manager.getByRole('button', { name: 'Reconnect link capture', exact: true }).click();
+  await expect(manager.getByRole('status')).toContainText('Background: responding.');
+  await manager.getByRole('button', { name: /All downloads/ }).click();
+  const frame = site.frameLocator('#existing-download-frame');
+  const framedUrl = `${base}/already-open-frame.zip?size=1048576&delay=2`;
+  await frame
+    .locator('#normal')
+    .evaluate((anchor, target) => ((anchor as HTMLAnchorElement).href = target), framedUrl);
+  await frame.locator('#normal').click();
+  await waitReady(framedUrl, 1048576);
+  expect((await browserItems()).filter((item) => item.url === framedUrl)).toHaveLength(0);
   for (const selector of ['#normal', '#download-attribute', '#cross-origin']) {
     const url = await site.locator(selector).getAttribute('href');
     const absolute = new URL(url!, base).href;
@@ -107,7 +135,7 @@ test('captured redirect and cross-host redirect download successfully while priv
   await manager.getByLabel('Download URL').fill(redirected);
   await manager
     .getByRole('dialog')
-    .getByRole('button', { name: 'Add download', exact: true })
+    .getByRole('button', { name: 'Start Download', exact: true })
     .click();
   await waitReady(redirected, 1048576);
   const blocked = `${base}/redirect-private`;
@@ -115,7 +143,7 @@ test('captured redirect and cross-host redirect download successfully while priv
   await manager.getByLabel('Download URL').fill(blocked);
   await manager
     .getByRole('dialog')
-    .getByRole('button', { name: 'Add download', exact: true })
+    .getByRole('button', { name: 'Start Download', exact: true })
     .click();
   await expect
     .poll(async () => (await jobs()).find((job) => job.url === blocked)?.state)
@@ -173,12 +201,51 @@ test('ordinary generated public GET downloads transfer ownership to Flux and can
   await site.locator('#native').click();
   const job = await waitReady(url, 2097152);
   expect(job.capturePending).toBe(false);
+  // The existing takeover handler erases Chrome's canceled record after Flux owns the file.
   await expect
     .poll(async () => (await browserItems()).find((item) => item.url === url)?.state)
-    .toBe('interrupted');
+    .toBeUndefined();
   expect((await jobs()).filter((job) => job.url === url)).toHaveLength(1);
 });
-test('POST and cookie-authenticated downloads preserve the original browser transfer instead of failing or losing data', async () => {
+test('cookie-authenticated downloads are taken over by Flux with the browser session', async () => {
+  const cookieLink = new URL((await site.locator('#cookie-link').getAttribute('href'))!, base).href;
+  await site.locator('#cookie-link').click();
+  await expect
+    .poll(async () => (await jobs()).find((job) => job.url === cookieLink)?.state, {
+      timeout: 30000,
+    })
+    .toBe('COMPLETED');
+  const job = (await jobs()).find((item) => item.url === cookieLink)!;
+  expect(job.engine).not.toBe('browser');
+  expect(job.sha256).toBe(fixtureHash(1048576));
+});
+test('the cookie choice is real and redirected CDN requests omit an unrelated session', async () => {
+  const direct = `${base}/cookie-file?size=131072&omit=1`;
+  await manager.getByRole('button', { name: 'Add download', exact: true }).click();
+  await manager.getByLabel('Download URL').fill(direct);
+  await manager.getByRole('tab', { name: 'Advanced', exact: true }).click();
+  await manager.getByLabel('Use browser cookies', { exact: true }).uncheck();
+  await manager.getByRole('button', { name: 'Start Download', exact: true }).click();
+  await expect
+    .poll(async () => (await jobs()).find((job) => job.url === direct)?.state)
+    .toBe('FAILED');
+  expect((await jobs()).find((job) => job.url === direct)?.error).toContain('401');
+  const cdn = base.replace('downloads.example.com', 'cdn.example.com');
+  await context.addCookies([{ name: 'cdn_session', value: 'fixture', url: cdn }]);
+  const target = `${cdn}/session-isolation.zip?size=131072`;
+  const redirected = `${base}/redirect-to?to=${encodeURIComponent(target)}`;
+  await manager.getByRole('button', { name: 'Add download', exact: true }).click();
+  await manager.getByLabel('Download URL').fill(redirected);
+  await manager.getByRole('button', { name: 'Start Download', exact: true }).click();
+  await waitReady(redirected, 131072);
+  const requests = fixture.stats.cookieRequests.filter(
+    (entry) => entry.path === '/session-isolation.zip',
+  );
+  expect(requests.length).toBeGreaterThan(0);
+  expect(requests.every((entry) => entry.host === 'cdn.example.com' && !entry.present)).toBe(true);
+});
+
+test('POST and referrer-bound downloads preserve the original browser transfer instead of failing or losing data', async () => {
   await site.locator('#authenticated-link').click();
   const cookieLink = new URL(
     (await site.locator('#authenticated-link').getAttribute('href'))!,
@@ -308,11 +375,15 @@ test('canceling a linked transfer cancels the original browser request without c
 });
 test('named queues, batch link review and expired address refresh control real engine transfers', async () => {
   await manager.getByRole('button', { name: 'Manage queues', exact: true }).click();
+  await manager.getByRole('button', { name: 'New queue', exact: true }).click();
   await manager.getByLabel('Queue name').fill('Sequential files');
   await manager.getByRole('button', { name: 'Save queue', exact: true }).click();
   await expect(
     manager.getByRole('dialog').getByText('Sequential files', { exact: true }),
   ).toBeVisible();
+  // An unscheduled queue runs as soon as it is created; stop it to hold the batch.
+  await manager.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(manager.getByRole('button', { name: 'Start now', exact: true })).toBeVisible();
   await manager.getByRole('button', { name: 'Close', exact: true }).click();
   await manager.getByRole('button', { name: 'Add multiple links', exact: true }).click();
   const inputs = [1, 2, 3].map((number) => ({
@@ -332,8 +403,8 @@ test('named queues, batch link review and expired address refresh control real e
       .every((job) => job.state === 'QUEUED'),
   ).toBe(true);
   await manager.getByRole('button', { name: 'Manage queues', exact: true }).click();
-  await manager.getByRole('button', { name: 'Start queue', exact: true }).click();
-  await expect(manager.getByRole('button', { name: 'Stop queue', exact: true })).toBeVisible();
+  await manager.getByRole('button', { name: 'Start now', exact: true }).click();
+  await expect(manager.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   await manager.getByRole('button', { name: 'Close', exact: true }).click();
   for (const input of inputs) await waitReady(input.url, 1048576);
   await manager.getByRole('button', { name: 'Add download', exact: true }).click();
@@ -342,7 +413,7 @@ test('named queues, batch link review and expired address refresh control real e
   await manager.getByLabel('File name optional').fill('refreshed.bin');
   await manager
     .getByRole('dialog')
-    .getByRole('button', { name: 'Add download', exact: true })
+    .getByRole('button', { name: 'Start Download', exact: true })
     .click();
   await expect
     .poll(async () => (await jobs()).find((job) => job.url === expired)?.state)
@@ -532,7 +603,7 @@ test('a chosen destination automatically exports verified files, avoids existing
     await manager.getByLabel('File name optional').fill('same-name.bin');
     await manager
       .getByRole('dialog')
-      .getByRole('button', { name: 'Add download', exact: true })
+      .getByRole('button', { name: 'Start Download', exact: true })
       .click();
     await expect
       .poll(async () => (await jobs()).find((job) => job.url === url)?.state, { timeout: 30000 })
@@ -575,7 +646,7 @@ test('trusted blob and data download links retain their bytes and filenames with
   await cdp.detach();
   for (const kind of ['blob', 'data'] as const) {
     const filename = `generated-${kind}.txt`;
-    const contents = `Flux generated ${kind} file: \u2713`;
+    const contents = `Flux generated ${kind} file: \u2713`.repeat(kind === 'blob' ? 20000 : 1);
     await site.evaluate(
       ({ kind, filename, contents }) => {
         const link = document.createElement('a');
@@ -595,25 +666,75 @@ test('trusted blob and data download links retain their bytes and filenames with
       .poll(async () => (await jobs()).find((job) => job.filename === filename)?.state)
       .toBe('COMPLETED');
     const job = (await jobs()).find((item) => item.filename === filename)!;
-    expect(job.engine).toBe('browser');
-    expect(job.browser?.sourceKind).toBe(kind);
-    expect(job.sha256).toBeNull();
+    // Flux reads the page's bytes itself, so the job is a verified Flux file, not a Chrome transfer.
+    expect(job.engine).not.toBe('browser');
+    expect(job.pageFile).toBe(true);
+    expect(job.sha256).toBe(createHash('sha256').update(contents).digest('hex'));
     expect(JSON.stringify(job)).not.toContain('data:text/');
     expect(JSON.stringify(job)).not.toContain(encodeURIComponent(contents));
-    expect((await browserItems()).filter((item) => item.id === job.browser!.id)).toHaveLength(1);
-    const native = (await browserItems()).find((item) => item.id === job.browser!.id)!;
-    // Category folders are on by default; .txt files go to Documents.
-    expect(native.filename).toBe(join(root, 'downloads', 'Documents', filename));
-    expect(await readFile(native.filename, 'utf8')).toBe(contents);
+    // Category folders are on by default; .txt files go to Documents. An earlier test may have
+    // chosen a destination folder, in which case Flux writes there instead of Chrome's Downloads.
+    const saved = join(root, 'downloads', 'Documents', filename);
+    const inFolder = await manager.evaluate(async (name) => {
+      try {
+        const directory = await (
+          await navigator.storage.getDirectory()
+        )
+          .getDirectoryHandle('auto-save-test')
+          .then((folder) => folder.getDirectoryHandle('Documents'));
+        return await (await (await directory.getFileHandle(name)).getFile()).text();
+      } catch {
+        return null;
+      }
+    }, filename);
+    expect(inFolder ?? (await readFile(saved, 'utf8'))).toBe(contents);
+    await manager.getByRole('button', { name: `Details for ${filename}`, exact: true }).click();
+    await expect(manager.getByRole('button', { name: 'Download again', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(manager.getByLabel('Source URL', { exact: true })).toHaveAttribute('readonly', '');
+    await manager.getByRole('button', { name: 'Close dialog', exact: true }).click();
     await manager.locator(`[data-job-id="${job.id}"]`).getByRole('checkbox').check();
     manager.once('dialog', (dialog) => dialog.accept());
     await manager.getByRole('button', { name: 'Remove selected', exact: true }).click();
     await expect.poll(async () => (await jobs()).some((item) => item.id === job.id)).toBe(false);
-    expect((await browserItems()).find((item) => item.id === job.browser!.id)?.state).toBe(
-      'complete',
-    );
-    expect(await readFile(native.filename, 'utf8')).toBe(contents);
   }
+});
+
+test('script-triggered blob downloads that Chrome already started are taken over by Flux', async () => {
+  const filename = 'scripted-blob.txt';
+  const contents = 'Flux scripted blob ✓';
+  await site.evaluate(
+    ({ filename, contents }) => {
+      // A detached anchor clicked from script never reaches the page-level click hook.
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = URL.createObjectURL(new Blob([contents], { type: 'text/plain' }));
+      setTimeout(() => link.click(), 0);
+    },
+    { filename, contents },
+  );
+  await expect
+    .poll(async () => (await jobs()).find((job) => job.filename === filename)?.state, {
+      timeout: 30000,
+    })
+    .toBe('COMPLETED');
+  const job = (await jobs()).find((item) => item.filename === filename)!;
+  expect(job.engine).not.toBe('browser');
+  expect(job.sha256).toBe(createHash('sha256').update(contents).digest('hex'));
+  // The verified job can complete before the background finishes removing Chrome's copy.
+  await expect
+    .poll(
+      async () =>
+        (await browserItems()).filter(
+          (item) =>
+            item.url.startsWith('blob:') &&
+            item.filename.endsWith(filename) &&
+            item.state === 'complete' &&
+            item.exists,
+        ).length,
+    )
+    .toBe(0);
 });
 
 test('excluded parent pages keep generated frame downloads outside Flux', async () => {
@@ -651,4 +772,79 @@ test('excluded parent pages keep generated frame downloads outside Flux', async 
   // Exclusion keeps the file out of Flux; Chrome still files it into its category folder.
   expect(original.filename).toBe(join(root, 'downloads', 'Documents', 'excluded-blob.txt'));
   expect(await readFile(original.filename, 'utf8')).toBe('Excluded parent');
+});
+test('a captured link waits for a queue choice in the popup, then downloads in the chosen queue', async () => {
+  await manager.bringToFront();
+  await manager.getByRole('button', { name: 'Settings', exact: true }).click();
+  await manager.getByLabel('Excluded hosts').fill('');
+  await manager.getByRole('button', { name: 'Save preferences' }).click();
+  await expect(manager.getByText('Preferences saved')).toBeVisible();
+  await manager.getByRole('button', { name: /^All downloads/ }).click();
+  await manager.getByRole('button', { name: 'Manage queues', exact: true }).click();
+  await manager.getByRole('button', { name: 'New queue', exact: true }).click();
+  await manager.getByLabel('Queue name').fill('Chooser test');
+  await manager.getByRole('button', { name: 'Save queue', exact: true }).click();
+  await manager.getByRole('button', { name: 'Close', exact: true }).click();
+  const queueId = (await snapshot()).settings.queues.find((q) => q.name === 'Chooser test')!.id;
+  const url = `${base}/chooser.zip?size=131072`;
+  await site.bringToFront();
+  await site.locator('#normal').evaluate((anchor, target) => {
+    (anchor as HTMLAnchorElement).href = target;
+  }, url);
+  await site.locator('#normal').click();
+  const pending = () =>
+    manager.evaluate(
+      async () =>
+        (
+          (await chrome.storage.session.get('queueChoice')) as {
+            queueChoice?: { items: { id: string }[] };
+          }
+        ).queueChoice?.items ?? [],
+    );
+  await expect.poll(async () => (await pending()).length).toBe(1);
+  expect((await browserItems()).filter((item) => item.url === url)).toHaveLength(0);
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${id}/popup.html`);
+  await expect(popup.getByText('Where should this download go?')).toBeVisible();
+  await popup.getByRole('radio', { name: /Chooser test/ }).check();
+  await popup.getByRole('button', { name: 'Add to queue', exact: true }).click();
+  await expect.poll(async () => (await pending()).length).toBe(0);
+  const job = await waitReady(url, 131072);
+  expect(job.queueId).toBe(queueId);
+  await popup.close();
+});
+test('an invalidated extension context leaves an already-open page download usable in Chrome', async () => {
+  await manager.getByRole('button', { name: 'Settings', exact: true }).click();
+  await manager.getByLabel('Excluded hosts').fill('');
+  await manager.getByLabel('Automatically capture downloads').check();
+  await manager.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await expect(manager.getByText('Preferences saved')).toBeVisible();
+  await site.goto(`${base}/capture-page?before-reload=1`);
+  const url = `${base}/extension-reloaded.zip?size=1048576&delay=2`;
+  await site
+    .locator('#normal')
+    .evaluate((anchor, href) => ((anchor as HTMLAnchorElement).href = href), url);
+  const previous = context
+    .serviceWorkers()
+    .find((worker) => worker.url() === `chrome-extension://${id}/background.js`)!;
+  const cdp = await context.browser()!.newBrowserCDPSession();
+  const oldTarget = (await cdp.send('Target.getTargets')).targetInfos.find(
+    (target) => target.type === 'service_worker' && target.url === previous.url(),
+  )!;
+  await previous.evaluate(() => {
+    setTimeout(() => chrome.runtime.reload(), 0);
+  });
+  await expect
+    .poll(async () =>
+      (await cdp.send('Target.getTargets')).targetInfos.some(
+        (target) => target.targetId === oldTarget.targetId,
+      ),
+    )
+    .toBe(false);
+  await cdp.detach();
+  const download = site.waitForEvent('download', { timeout: 10000 });
+  await site.locator('#normal').click();
+  const original = await download;
+  expect(original.url()).toBe(url);
+  await original.cancel();
 });

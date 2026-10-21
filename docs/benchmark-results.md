@@ -1,15 +1,15 @@
 # Measured fixture benchmark
 
-Measured 2026-10-19T11:50:02.505Z on Windows using Chrome 155.0.8059.82. 8 MiB deterministic file; 3 repeats per mode; HTTP/1.1 fixture emits 16 KiB with 16ms pacing per response. Fixture runs on loopback mapped to a public-looking test hostname. No user product networking bypass ships.
+Measured 2026-10-21T05:58:26.101Z on Windows using Chrome 155.0.8059.85. 16 MiB deterministic file; 2 repeats per mode; HTTP/1.1 fixture emits 16 KiB with 32ms pacing per response. Fixture runs on loopback mapped to a public-looking test hostname. No user product networking bypass ships.
 
 | Mode     | Median MiB/s | Failures | Median Chrome CPU seconds* | Peak manager JS heap MiB** |
 | -------- | -----------: | -------: | -------------------------: | -------------------------: |
-| native   |         0.57 |      0/3 |                       1.31 |                 unmeasured |
-| 1        |         0.59 |      0/3 |                       4.25 |                        7.9 |
-| 4        |         2.15 |      0/3 |                       1.63 |                        8.3 |
-| 8        |         2.22 |      0/3 |                       1.58 |                        8.4 |
-| 16       |         2.21 |      0/3 |                       1.74 |                       13.1 |
-| adaptive |         0.77 |      0/3 |                       3.43 |                        9.5 |
+| native   |         0.40 |      0/2 |                       3.73 |                 unmeasured |
+| 1        |         0.41 |      0/2 |                      12.07 |                        9.8 |
+| 4        |         1.53 |      0/2 |                       3.66 |                       10.0 |
+| 8        |         2.05 |      0/2 |                       3.35 |                       11.9 |
+| 16       |         2.10 |      0/2 |                       3.18 |                       13.0 |
+| adaptive |         2.03 |      0/2 |                       3.08 |                       11.7 |
 
 Timing includes probe, UI admission, OPFS persistence and final checksum for Flux; native timing includes completion and independent disk SHA-256. It excludes Flux final user-file export, which requires another streamed copy. These are local fixture results, not Internet performance or IDM comparisons. Native Chrome may use different request/transport behavior. HTTP/1.1 connection pools limit useful concurrency; configured fetch counts are not guaranteed transport socket counts.
 

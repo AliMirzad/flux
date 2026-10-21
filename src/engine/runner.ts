@@ -395,10 +395,18 @@ export async function runDownload(options: EngineOptions) {
               checkAbort(rangeSignal);
               activeBytes.delete(index);
               updateBytes();
-              if (error instanceof RangeErrorResponse || !retryable(error) || attempt === 4)
-                throw error;
+              if (error instanceof RangeErrorResponse || !retryable(error)) throw error;
+              if (job.mode !== 'manual') {
+                adaptive.sample(meter.rate(), true, performance.now(), job.connections);
+                // Over the lowered target this connection closes and hands its range back,
+                // rather than spending retries against a server that refuses that many.
+                if (job.connections > adaptive.target) {
+                  pending.splice(next, 0, range);
+                  return;
+                }
+              }
+              if (attempt === 4) throw error;
               job.retries++;
-              adaptive.sample(meter.rate(), true);
               job.timeline = [
                 ...job.timeline.slice(-99),
                 {

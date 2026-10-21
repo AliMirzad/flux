@@ -36,6 +36,9 @@ export interface Timeline {
 }
 export interface DownloadJob {
   id: string;
+  /** A received page file has no replayable network URL. */
+  pageFile?: boolean;
+  useBrowserCookies?: boolean;
   engine?: 'flux' | 'browser';
   browser?: {
     id: number;
@@ -49,8 +52,15 @@ export interface DownloadJob {
   };
   media?: {
     kind: 'hls';
+    transport?: 'mp4' | 'mpegts';
+    initializationBytes?: number;
+    initializationHash?: string;
     planHash?: string;
     playlistUrl?: string;
+    audioUrl?: string;
+    audioLabel?: string;
+    sourceTrackIds?: { video: number; audio: number };
+    trackStarts?: Record<string, number>;
     duration?: number;
     parts?: number;
     completed?: number;
@@ -101,6 +111,8 @@ export interface DownloadQueue {
   name: string;
   maxActive: number;
   paused: boolean;
+  /** Started manually: runs now regardless of the schedule, cleared when the queue finishes. */
+  manualRun?: boolean;
   windowStart: string;
   windowEnd: string;
   speedLimit: number;
@@ -116,6 +128,10 @@ export interface DownloadQueue {
 }
 export interface Settings {
   queues: DownloadQueue[];
+  /** Ask in the toolbar popup which queue a captured download joins (when named queues exist). */
+  askQueue: boolean;
+  /** Show the Add Download dialog in the toolbar popup before a captured download starts. */
+  confirmCapture: boolean;
   autoSave: boolean;
   saveByCategory: boolean;
   /** downloads = Chrome's Downloads folder (no picker needed); folder = a folder chosen with the picker. */
@@ -124,6 +140,8 @@ export interface Settings {
   downloadsSubfolder: string;
   categoryFolders: Record<Category, string>;
   settingsVersion?: number;
+  /** Set when the browser showed its own save dialog for a Flux save ("ask where to save" is on). */
+  saveDialogDetected?: boolean;
   completionSound: boolean;
   trafficLimit: number;
   trafficPeriodHours: number;
@@ -147,6 +165,8 @@ export interface Settings {
 }
 export const defaultSettings: Settings = {
   queues: [],
+  askQueue: true,
+  confirmCapture: true,
   autoSave: true,
   saveByCategory: true,
   saveLocation: 'downloads',
@@ -171,7 +191,7 @@ export const defaultSettings: Settings = {
   maxConnections: 8,
   mode: 'auto',
   globalLimit: 0,
-  theme: 'dark',
+  theme: 'light',
   notifications: false,
   interception: false,
   excludedHosts: [],
@@ -226,7 +246,10 @@ export const defaultSettings: Settings = {
 };
 export interface NewDownload {
   url: string;
+  useBrowserCookies?: boolean;
   media?: 'hls';
+  audioUrl?: string;
+  audioLabel?: string;
   queueId?: string;
   startPaused?: boolean;
   filename?: string;
@@ -234,6 +257,11 @@ export interface NewDownload {
   scheduledAt?: number | null;
   speedLimit?: number;
   expectedHash?: string;
+  /** Overrides the category guessed from the file name. */
+  category?: Category;
+  /** Per-download connection count (1, 2, 4, 8 or 16) and strategy. */
+  maxConnections?: number;
+  mode?: 'auto' | 'manual';
 }
 export interface Snapshot {
   traffic?: { used: number; limit: number; resetsAt: number };

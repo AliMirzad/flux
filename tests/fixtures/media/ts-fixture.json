@@ -1,0 +1,30 @@
+{
+  "source": "Locally generated MPEG-TS from our own synthetic H.264/AAC fixture.",
+  "clockOrigin": 90000,
+  "parts": [
+    {
+      "part": 0,
+      "bytes": 19928,
+      "packets": 106,
+      "sha256": "925f2c7593f19ae0171747c5e690f99bb5525f943dea44f30b3224635a43fc23"
+    },
+    {
+      "part": 1,
+      "bytes": 22748,
+      "packets": 121,
+      "sha256": "2c6dfbefc28187fa179834d8de5687b597ad7331e7d0acf1a496a89a70aa299b"
+    },
+    {
+      "part": 2,
+      "bytes": 21808,
+      "packets": 116,
+      "sha256": "3bbf883b91fc4e4de9b1645d4023decaab72d1b367f19abf97924ce7d92b87bb"
+    },
+    {
+      "part": 3,
+      "bytes": 18424,
+      "packets": 98,
+      "sha256": "441a5881cdd293a7e79e312ce5524079d3d1c06342346f0d710fe645479608ef"
+    }
+  ]
+}

@@ -1,9 +1,17 @@
 import { Repository } from '../storage/repository';
 import { validateUrl, safeError, trustedSender } from '../shared/security';
-import { defaultSettings, runningStates } from '../domain/model';
+import { defaultSettings, runningStates, type Settings } from '../domain/model';
 import { filenameFromHeaders } from '../shared/files';
 import { downloadsRelativePath, sanitizeFilename } from '../shared/files';
 import { createJob } from '../application/jobs';
+import {
+  PAGE_FILE_LIMIT,
+  PAGE_TRANSFER_TTL,
+  PAGE_TRANSFER_SLOTS,
+  pageTransferKey,
+  type PageTransferGrant,
+} from '../application/page-transfer';
+import { nextQueueBoundary, queueAvailable } from '../application/queue';
 import { RequestLedger } from './request-ledger';
 import { captureOrigins, eligibleLink, excludedHost } from '../shared/capture';
 import { probe, HttpError } from '../engine/network/http';
@@ -14,7 +22,7 @@ import {
   updateBrowserJob,
   browserNeedsReview,
 } from '../domain/browser-download';
-import type { DownloadJob } from '../domain/model';
+import type { DownloadJob, NewDownload } from '../domain/model';
 import { hasPendingTransfer } from '../domain/retry';
 const repository = new Repository();
 const ownOrigin = `chrome-extension://${chrome.runtime.id}`;
@@ -309,7 +317,7 @@ function enqueue(url: string, filename?: string, hold = false) {
           (Date.now() - job.createdAt < 30000 && !['FAILED', 'CANCELED'].includes(job.state))),
     );
     if (existing) return { job: existing, created: false };
-    const job = createJob({ url, filename }, settings);
+    const job = createJob({ url, filename, useBrowserCookies: true }, settings);
     if (hold) {
       job.state = 'PAUSED';
       job.capturePending = true;
@@ -320,13 +328,88 @@ function enqueue(url: string, filename?: string, hold = false) {
   enqueueing = task.catch(() => undefined);
   return task;
 }
+/** The manager tab owns the engine; keep one open in the background without taking focus. */
 async function wakeManager() {
-  await openManager();
+  const url = chrome.runtime.getURL('manager.html');
+  const tabs = await chrome.tabs.query({ url: url + '*' });
+  if (!tabs.length) await chrome.tabs.create({ url, active: false });
   await chrome.runtime.sendMessage({ type: 'queue-wake' }).catch(() => undefined);
+}
+/** Shows the toolbar popup so the user sees the transfer start instead of switching tabs. */
+async function announce(count: number) {
+  await chrome.storage.session
+    .set({ popupNotice: { count, at: Date.now() } })
+    .catch(() => undefined);
+  await chrome.action.openPopup().catch(() => undefined);
+}
+interface QueueChoice {
+  items: { id: string; filename: string; url?: string }[];
+  at: number;
+}
+let choiceWrites: Promise<unknown> = Promise.resolve();
+function mutateChoice<T>(operation: (choice: QueueChoice) => Promise<T>) {
+  const task = choiceWrites.then(async () => {
+    const stored = (await chrome.storage.session.get('queueChoice')) as {
+      queueChoice?: QueueChoice;
+    };
+    const choice: QueueChoice =
+      stored.queueChoice && Array.isArray(stored.queueChoice.items)
+        ? stored.queueChoice
+        : { items: [], at: Date.now() };
+    const result = await operation(choice);
+    await chrome.storage.session.set({ queueChoice: choice });
+    await chrome.action.setBadgeText({
+      text: choice.items.length ? String(choice.items.length) : '',
+    });
+    if (choice.items.length) await chrome.action.setBadgeBackgroundColor({ color: '#d2b477' });
+    return result;
+  });
+  choiceWrites = task.catch(() => undefined);
+  return task;
+}
+/** Moves held captures into a queue and lets the engine pick them up. */
+async function releaseJobs(ids: string[], queueId: string, mode: 'now' | 'paused') {
+  const settings = await repository.getSettings();
+  if (queueId !== 'default' && !settings.queues.some((queue) => queue.id === queueId))
+    throw new Error('That queue no longer exists.');
+  for (const id of ids) {
+    const job = await repository.getJob(id);
+    if (!job?.capturePending) continue;
+    job.capturePending = false;
+    job.queueId = queueId;
+    job.state = mode === 'paused' ? 'PAUSED' : 'QUEUED';
+    await repository.putJob(job);
+  }
+  await wakeManager();
+}
+/** New captures either wait for a queue choice in the popup or start right away. */
+async function routeCaptured(jobs: DownloadJob[], count = jobs.length) {
+  const settings = await repository.getSettings();
+  const held = jobs.filter((job) => job.capturePending);
+  if (held.length && (settings.confirmCapture || (settings.askQueue && settings.queues.length))) {
+    await mutateChoice(async (choice) => {
+      const known = new Set(choice.items.map((item) => item.id));
+      choice.items.push(
+        ...held
+          .filter((job) => !known.has(job.id))
+          .map((job) => ({ id: job.id, filename: job.filename, url: job.url })),
+      );
+      choice.at = Date.now();
+    });
+    // If the popup cannot open (no focused window), the badge count still asks for a click.
+    await chrome.action.openPopup().catch(() => undefined);
+    return;
+  }
+  await releaseJobs(
+    held.map((job) => job.id),
+    'default',
+    'now',
+  );
+  await announce(count);
 }
 async function openManager(hash = '') {
   const url = chrome.runtime.getURL('manager.html');
-  const tabs = await chrome.tabs.query({ url });
+  const tabs = await chrome.tabs.query({ url: url + '*' });
   if (tabs[0]?.id) {
     await chrome.tabs.update(tabs[0].id, { active: true, ...(hash ? { url: url + hash } : {}) });
     if (tabs[0].windowId) await chrome.windows.update(tabs[0].windowId, { focused: true });
@@ -385,11 +468,19 @@ async function applyCaptureConfiguration() {
         }
       })
       .map(async (tab) => {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id! },
-          files: ['content.js'],
-          injectImmediately: true,
-        });
+        await chrome.scripting
+          .executeScript({
+            target: { tabId: tab.id!, allFrames: true },
+            files: ['content.js'],
+            injectImmediately: true,
+          })
+          .catch(() =>
+            chrome.scripting.executeScript({
+              target: { tabId: tab.id! },
+              files: ['content.js'],
+              injectImmediately: true,
+            }),
+          );
         await chrome.tabs.sendMessage(tab.id!, { type: 'capture-config-changed' });
       }),
   );
@@ -404,27 +495,84 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
       id: 'flux-download',
       title: 'Download with Flux',
-      contexts: ['link'],
+      // With "selection", right-clicking a link inside selected text also reports that selection.
+      contexts: ['link', 'selection'],
       targetUrlPatterns: ['http://*/*', 'https://*/*'],
     });
   });
   void configureOffers().catch((e) => console.error(safeError(e)));
 });
-chrome.permissions.onAdded.addListener(
-  () => void configureOffers().catch((e) => console.error(safeError(e))),
-);
+chrome.permissions.onAdded.addListener(() => {
+  void configureOffers().catch((e) => console.error(safeError(e)));
+  // Access granted from the popup (which may close during the prompt) resumes waiting jobs.
+  void (async () => {
+    const jobs = await repository.getJobs();
+    for (const job of jobs) {
+      if (!job.permissionOrigin || !['PAUSED', 'FAILED'].includes(job.state)) continue;
+      if (!(await chrome.permissions.contains({ origins: [`${job.permissionOrigin}/*`] })))
+        continue;
+      await chrome.runtime
+        .sendMessage({ type: 'manager-command', id: job.id, action: 'retry' })
+        .catch(() => undefined);
+    }
+  })().catch((e) => console.error(safeError(e)));
+});
 chrome.permissions.onRemoved.addListener(
   () => void configureOffers().catch((e) => console.error(safeError(e))),
 );
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId === 'flux-download' && info.linkUrl) {
+/** Links inside the page's current text selection, in document order. */
+async function selectedLinks(tab: chrome.tabs.Tab | undefined, frameId = 0) {
+  if (!tab?.id) return [];
+  const result = await chrome.scripting
+    .executeScript({
+      target: { tabId: tab.id, frameIds: [frameId] },
+      func: () => {
+        const selection = getSelection();
+        const links: string[] = [];
+        for (let index = 0; selection && index < selection.rangeCount; index++) {
+          const range = selection.getRangeAt(index);
+          const root = range.commonAncestorContainer;
+          const element = root instanceof Element ? root : root.parentElement;
+          const enclosing = element?.closest<HTMLAnchorElement>('a[href]');
+          const anchors = enclosing
+            ? [enclosing]
+            : Array.from(element?.querySelectorAll<HTMLAnchorElement>('a[href]') ?? []);
+          for (const anchor of anchors) if (range.intersectsNode(anchor)) links.push(anchor.href);
+        }
+        return links.slice(0, 500);
+      },
+    })
+    .catch(() => []);
+  return result.flatMap((entry) => (Array.isArray(entry.result) ? (entry.result as string[]) : []));
+}
+async function downloadFromMenu(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) {
+  const settings = await repository.getSettings();
+  const candidates = [
+    ...(info.selectionText ? await selectedLinks(tab, info.frameId) : []),
+    ...(info.linkUrl ? [info.linkUrl] : []),
+  ].flatMap((value) => {
     try {
-      const url = validateUrl(info.linkUrl);
-      void openManager(`#add=${encodeURIComponent(url.href)}`);
-    } catch (error) {
-      void openManager(`#error=${encodeURIComponent(safeError(error))}`);
+      return [validateUrl(value).href];
+    } catch {
+      return [];
     }
-  }
+  });
+  const unique = [...new Set(candidates)];
+  // A selection often spans navigation links too; prefer recognized file links when there are any.
+  const files = unique.filter((url) => eligibleLink(url, settings));
+  const urls = unique.length > 1 && files.length ? files : unique;
+  if (!urls.length) throw new Error('No downloadable links were found in the selection.');
+  const jobs: DownloadJob[] = [];
+  for (const url of urls) jobs.push((await enqueue(url, undefined, true)).job);
+  await routeCaptured(jobs);
+}
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== 'flux-download') return;
+  // openPopup needs the click's user activation, so open it now; it fills in as jobs arrive.
+  void chrome.action.openPopup().catch(() => undefined);
+  void downloadFromMenu(info, tab).catch((error) =>
+    openManager(`#error=${encodeURIComponent(safeError(error))}`),
+  );
 });
 chrome.runtime.onStartup.addListener(() => {
   void (async () => {
@@ -433,6 +581,13 @@ chrome.runtime.onStartup.addListener(() => {
     const pending = jobs
       .filter((j) => j.state === 'QUEUED' && j.scheduledAt)
       .map((j) => j.scheduledAt!);
+    // Scheduled queues with waiting files must also fire after a browser restart.
+    const settings = await repository.getSettings();
+    for (const queue of settings.queues) {
+      if (!jobs.some((job) => job.queueId === queue.id && job.state === 'QUEUED')) continue;
+      const at = queueAvailable(queue) ? Date.now() : nextQueueBoundary(queue);
+      if (at != null) pending.push(at);
+    }
     if (pending.length)
       await chrome.alarms.create('flux-queue', {
         when: Math.max(Date.now() + 1000, Math.min(...pending)),
@@ -440,15 +595,68 @@ chrome.runtime.onStartup.addListener(() => {
   })().catch((e) => console.error(safeError(e)));
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'flux-queue')
-    void chrome.runtime.sendMessage({ type: 'queue-wake' }).catch(() => undefined);
+  // A schedule must start even when the manager was closed, so reopen it in the background.
+  if (alarm.name === 'flux-queue') void wakeManager().catch((e) => console.error(safeError(e)));
 });
+/**
+ * A page started a blob download from script, so no click reached the content script.
+ * Ask the page to hand the bytes to Flux, then drop Chrome's copy. False keeps Chrome's download.
+ */
+async function takeOverBlob(item: chrome.downloads.DownloadItem, settings: Settings) {
+  try {
+    const origin = new URL(item.url.slice(5)).origin;
+    const host = new URL(origin).hostname;
+    if (excludedHost(host, settings.excludedHosts)) return false;
+    if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return false;
+    // Downloads that Flux itself deferred to Chrome after a failed hand-off must stay there.
+    const hints = Object.values(await browserLinkHints());
+    if (
+      hints.some((hint) => Date.now() - hint.at < 30000 && new URL(hint.source).origin === origin)
+    )
+      return false;
+    const tabs = (await chrome.tabs.query({})).filter((tab) => {
+      try {
+        return tab.id !== undefined && new URL(tab.url ?? '').origin === origin;
+      } catch {
+        return false;
+      }
+    });
+    if (!tabs.length) return false;
+    let filename = '';
+    for (let attempt = 0; attempt < 10 && !filename; attempt++) {
+      const current = (await chrome.downloads.search({ id: item.id }))[0];
+      filename = current?.filename?.split(/[\\/]/).pop() ?? '';
+      if (!filename) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    for (const tab of tabs) {
+      const reply = await chrome.tabs
+        .sendMessage(tab.id!, {
+          type: 'fetch-blob',
+          url: item.url,
+          filename: filename || 'download',
+        })
+        .catch(() => null);
+      if (reply?.ok !== true) continue;
+      const current = (await chrome.downloads.search({ id: item.id }))[0];
+      if (current?.state === 'in_progress') await chrome.downloads.cancel(item.id);
+      else if (current?.state === 'complete' && current.exists !== false)
+        await chrome.downloads.removeFile(item.id).catch(() => undefined);
+      await chrome.downloads.erase({ id: item.id }).catch(() => undefined);
+      await wakeManager();
+      return true;
+    }
+  } catch {
+    /* Chrome keeps the download whenever the hand-off cannot be completed. */
+  }
+  return false;
+}
 chrome.downloads.onCreated.addListener((item) => {
   void (async () => {
     // Flux's own category saves are blob:chrome-extension:// downloads; never track them.
     if (item.byExtensionId || item.url.startsWith(`blob:${ownOrigin}/`)) return;
     const settings = await repository.getSettings();
     if (!settings.interception) return;
+    if (item.url.startsWith('blob:') && (await takeOverBlob(item, settings))) return;
     const fallbackAt = nativeFallbacks.get(item.url);
     const requiresBrowser = fallbackAt !== undefined && Date.now() - fallbackAt < 60000;
     if (requiresBrowser) nativeFallbacks.delete(item.url);
@@ -500,6 +708,7 @@ chrome.downloads.onCreated.addListener((item) => {
         const current = (await chrome.downloads.search({ id: item.id }))[0];
         if (!current || current.state !== 'in_progress') return;
         const resource = await probe(url.href, AbortSignal.timeout(25000), fetch, false, {
+          credentialOrigin: url.origin,
           resolveRedirect,
         });
         if (/^(text\/html|application\/(json|problem\+json))/i.test(resource.mime))
@@ -513,12 +722,9 @@ chrome.downloads.onCreated.addListener((item) => {
         );
         await chrome.downloads.cancel(item.id);
         canceled = true;
-        if (queued.created) {
-          queued.job.state = 'QUEUED';
-          queued.job.capturePending = false;
-          await repository.putJob(queued.job);
-        }
-        await wakeManager();
+        // Flux owns the file now; do not leave a "Canceled" row in the Chrome download list.
+        await chrome.downloads.erase({ id: item.id }).catch(() => undefined);
+        await routeCaptured([queued.job], 1);
         return;
       } catch (error) {
         if (queued?.created && !canceled) await repository.deleteJob(queued.job.id);
@@ -578,6 +784,65 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     })().then(respond, () => respond({}));
     return true;
   }
+  if (message.type === 'begin-blob' && sender.tab) {
+    // The page's own blob/data bytes are streamed to the manager under a short-lived token.
+    void (async () => {
+      const settings = await repository.getSettings();
+      if (
+        !settings.interception ||
+        !sender.url ||
+        !sender.tab?.url ||
+        !sender.documentId ||
+        !Number.isSafeInteger(sender.tab.id) ||
+        !Number.isSafeInteger(sender.frameId) ||
+        !Number.isSafeInteger(message.size) ||
+        message.size < 0 ||
+        message.size > PAGE_FILE_LIMIT
+      )
+        return {};
+      const source = validateUrl(sender.url);
+      const top = new URL(sender.tab.url);
+      if (
+        excludedHost(source.hostname, settings.excludedHosts) ||
+        excludedHost(top.hostname, settings.excludedHosts) ||
+        !(await chrome.permissions.contains({ origins: [`${source.origin}/*`] }))
+      )
+        return {};
+      await wakeManager();
+      let ready = false;
+      for (let attempt = 0; attempt < 30 && !ready; attempt++) {
+        ready =
+          (await chrome.runtime.sendMessage({ type: 'blob-ready' }).catch(() => null))?.ok === true;
+        if (!ready) await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!ready) return {};
+      return mutateHints(async () => {
+        const stored = await chrome.storage.session.get(null);
+        const entries = Object.entries(stored).filter(([key]) =>
+          key.startsWith('blobTransfer:'),
+        ) as [string, PageTransferGrant][];
+        const expired = entries.filter(
+          ([, grant]) =>
+            !grant || !Number.isFinite(grant.at) || Date.now() - grant.at >= PAGE_TRANSFER_TTL,
+        );
+        if (expired.length) await chrome.storage.session.remove(expired.map(([key]) => key));
+        if (entries.length - expired.length >= PAGE_TRANSFER_SLOTS) return {};
+        const token = crypto.randomUUID();
+        await chrome.storage.session.set({
+          [pageTransferKey(token)]: {
+            source: source.href,
+            tabId: sender.tab!.id!,
+            frameId: sender.frameId!,
+            documentId: sender.documentId!,
+            size: message.size,
+            at: Date.now(),
+          } satisfies PageTransferGrant,
+        });
+        return { token };
+      });
+    })().then(respond, () => respond({}));
+    return true;
+  }
   if (message.type === 'capture-link' && sender.tab && typeof message.url === 'string') {
     void (async () => {
       const settings = await repository.getSettings();
@@ -599,6 +864,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       // Recognized links can still require the page's cookie session. Preserve that request.
       try {
         const resource = await probe(url.href, AbortSignal.timeout(25000), fetch, false, {
+          credentialOrigin: url.origin,
           resolveRedirect,
         });
         if (/^text\/html/i.test(resource.mime)) {
@@ -616,8 +882,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         typeof message.filename === 'string' && message.filename
           ? sanitizeFilename(message.filename)
           : undefined,
+        true,
       );
-      const warning = await wakeManager().then(
+      const warning = await routeCaptured([entry.job], 1).then(
         () => null,
         (error) => safeError(error),
       );
@@ -636,6 +903,43 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (!trustedSender(sender)) return;
+  if (
+    message.type === 'queue-choice' &&
+    Array.isArray(message.ids) &&
+    typeof message.queueId === 'string' &&
+    ['now', 'paused', 'cancel'].includes(message.mode)
+  ) {
+    void (async () => {
+      const ids = (message.ids as unknown[]).filter((id): id is string => typeof id === 'string');
+      await mutateChoice(async (choice) => {
+        choice.items = choice.items.filter((item) => !ids.includes(item.id));
+      });
+      if (message.mode === 'cancel') {
+        for (const id of ids)
+          if ((await repository.getJob(id))?.capturePending) await repository.deleteJob(id);
+        return { ok: true };
+      }
+      await releaseJobs(ids, message.queueId, message.mode);
+      return { ok: true };
+    })().then(respond, (error) => respond({ error: safeError(error) }));
+    return true;
+  }
+  if (message.type === 'capture-confirm' && typeof message.id === 'string' && message.input) {
+    void (async () => {
+      const held = await repository.getJob(message.id);
+      if (!held?.capturePending) throw new Error('This download is no longer waiting.');
+      const settings = await repository.getSettings();
+      const next = createJob(message.input as NewDownload, settings);
+      await repository.putJob(next);
+      await repository.deleteJob(held.id);
+      await mutateChoice(async (choice) => {
+        choice.items = choice.items.filter((item) => item.id !== held.id);
+      });
+      await wakeManager();
+      return { ok: true };
+    })().then(respond, (error) => respond({ error: safeError(error) }));
+    return true;
+  }
   if (
     message.type === 'native-command' &&
     typeof message.id === 'string' &&
@@ -709,6 +1013,25 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       await configureOffers();
       await chrome.runtime.sendMessage({ type: 'integration-settings' }).catch(() => undefined);
       return { ok: true };
+    })().then(respond, (error) => respond({ error: safeError(error) }));
+    return true;
+  }
+  if (message.type === 'integration-status') {
+    void (async () => {
+      if (message.reconnect === true) await configureOffers();
+      const [settings, access, scripts] = await Promise.all([
+        repository.getSettings(),
+        chrome.permissions.contains({ origins: captureOrigins }),
+        chrome.scripting.getRegisteredContentScripts({ ids: ['flux-offers'] }),
+      ]);
+      const script = scripts[0];
+      return {
+        version: chrome.runtime.getManifest().version,
+        enabled: settings.interception,
+        websiteAccess: access,
+        registered:
+          !!script && script.js?.includes('content.js') === true && script.allFrames === true,
+      };
     })().then(respond, (error) => respond({ error: safeError(error) }));
     return true;
   }
@@ -850,27 +1173,50 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const result = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         args: [message.type === 'discover-links'],
-        func: (includeLinks: boolean) =>
-          (includeLinks
-            ? Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
+        func: (includeLinks: boolean) => {
+          const isPlaylist = (value: string) => {
+            try {
+              return /\.m3u8?$/i.test(new URL(value).pathname);
+            } catch {
+              return false;
+            }
+          };
+          return Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
+            .slice(0, 2000)
+            .map((anchor) => anchor.href)
+            .filter((url) => includeLinks || isPlaylist(url))
+            .concat(
+              Array.from(document.querySelectorAll<HTMLMediaElement>('video,audio'))
                 .slice(0, 2000)
-                .map((anchor) => anchor.href)
-            : []
-          ).concat(
-            Array.from(document.querySelectorAll<HTMLMediaElement>('video,audio'))
-              .flatMap((el) => [
-                el.currentSrc,
-                el.src,
-                ...Array.from(el.querySelectorAll('source')).map((s) => s.src),
-              ])
-              .filter(Boolean),
-          ),
+                .flatMap((el) => [
+                  el.currentSrc,
+                  el.src,
+                  ...Array.from(el.querySelectorAll('source')).map((s) => s.src),
+                ])
+                .filter(Boolean),
+            )
+            .concat(
+              performance
+                .getEntriesByType('resource')
+                .slice(-2000)
+                .map((entry) => entry.name)
+                .filter(isPlaylist),
+            );
+        },
       });
       return {
         items: [...new Set(result.flatMap((r) => r.result ?? []))].flatMap((url) => {
           try {
             const parsed = validateUrl(url);
-            return [{ url: parsed.href, filename: parsed.pathname.split('/').pop() ?? 'media' }];
+            return [
+              {
+                url: parsed.href,
+                filename: parsed.pathname.split('/').pop() ?? 'media',
+                ...(message.type === 'detect-media' && /\.m3u8?$/i.test(parsed.pathname)
+                  ? { media: 'hls' as const }
+                  : {}),
+              },
+            ];
           } catch {
             return [];
           }

@@ -1,0 +1,100 @@
+/* Add Download window shown in the toolbar popup when a download link is captured. */
+html.capture-mode body {
+  width: 600px;
+  min-width: 600px;
+  min-height: 0;
+  background: var(--surface);
+}
+.embedded-dialog {
+  width: 600px;
+  background: var(--surface);
+  color: var(--text);
+  padding-bottom: 0;
+}
+.embedded-dialog .modal-header {
+  position: static;
+  padding: 18px 26px 4px;
+  background: transparent;
+}
+.embedded-dialog .add-form {
+  padding: 10px 26px 0;
+  gap: 12px;
+}
+.embedded-dialog .panel {
+  min-height: 236px;
+  gap: 10px;
+}
+.embedded-dialog .add-footer {
+  padding: 14px 26px;
+  margin-top: 4px;
+}
+
+.queue-chooser {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+}
+.queue-chooser .chooser-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+.queue-chooser .chooser-title svg {
+  color: var(--accent);
+}
+.queue-chooser .chooser-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 170px;
+  overflow-y: auto;
+  padding: 0;
+}
+.queue-chooser .chooser-files li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.chooser-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.chooser-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-chooser .chooser-options {
+  max-height: 150px;
+}
+.queue-chooser .add-footer .button {
+  min-width: 0;
+  padding: 11px 16px;
+}
+.queue-chooser .add-footer .button.primary {
+  min-width: 130px;
+}
+
+.queue-chooser .modal-header h2 {
+  font-size: 19px;
+  margin: 0;
+}
+.queue-chooser {
+  gap: 0;
+}

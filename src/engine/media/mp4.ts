@@ -18,7 +18,18 @@ function u64(data: Uint8Array, at: number) {
   if (!Number.isSafeInteger(n)) throw new Error('Unsafe MP4 size or timeline.');
   return n;
 }
+function fields(box: Box, bytes: number) {
+  if (box.end - box.body < bytes) throw new Error(`Truncated MP4 ${box.type} fields.`);
+}
 export function mp4Boxes(data: Uint8Array, start = 0, end = data.length): Box[] {
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end < start ||
+    end > data.length
+  )
+    throw new Error('Invalid MP4 container boundary.');
   const result: Box[] = [];
   for (let at = start; at < end;) {
     if (at + 8 > end) throw new Error('Truncated MP4 box header.');
@@ -60,27 +71,41 @@ export function inspectMp4Init(data: Uint8Array): Mp4Track[] {
     throw new Error('Protected MP4 tracks are not supported.');
   const mvex = child(data, moov, 'mvex');
   const defaults = new Map<number, { duration: number; size: number }>();
-  for (const box of mp4Boxes(data, mvex.body, mvex.end).filter((box) => box.type === 'trex'))
+  for (const box of mp4Boxes(data, mvex.body, mvex.end).filter((box) => box.type === 'trex')) {
+    fields(box, 24);
+    if (
+      u32(data, box.body) !== 0 ||
+      u32(data, box.body + 8) !== 1 ||
+      defaults.has(u32(data, box.body + 4))
+    )
+      throw new Error('Unsupported MP4 fragment defaults.');
     defaults.set(u32(data, box.body + 4), {
       duration: u32(data, box.body + 12),
       size: u32(data, box.body + 16),
     });
+  }
   const tracks: Mp4Track[] = [];
   for (const trak of mp4Boxes(data, moov.body, moov.end).filter((box) => box.type === 'trak')) {
+    if (mp4Boxes(data, trak.body, trak.end).some((box) => box.type === 'edts'))
+      throw new Error('MP4 edit lists require a supported timeline remux workflow.');
     const tkhd = child(data, trak, 'tkhd'),
       version = data[tkhd.body];
     if (version !== 0 && version !== 1) throw new Error('Unsupported MP4 track header.');
+    fields(tkhd, version === 1 ? 32 : 24);
     const id = u32(data, tkhd.body + (version === 1 ? 20 : 12));
     const mdia = child(data, trak, 'mdia'),
       mdhd = child(data, mdia, 'mdhd'),
       handler = child(data, mdia, 'hdlr');
     const timeVersion = data[mdhd.body];
     if (timeVersion !== 0 && timeVersion !== 1) throw new Error('Unsupported MP4 media header.');
+    fields(mdhd, timeVersion === 1 ? 32 : 20);
+    fields(handler, 12);
     const timescale = u32(data, mdhd.body + (timeVersion === 1 ? 20 : 12));
     const kind = ascii(data, handler.body + 8);
     if (kind !== 'vide' && kind !== 'soun')
       throw new Error('This MP4 track type needs a supported mux workflow.');
     const stsd = child(data, child(data, child(data, mdia, 'minf'), 'stbl'), 'stsd');
+    fields(stsd, 8);
     if (u32(data, stsd.body + 4) !== 1)
       throw new Error('Changing MP4 sample descriptions are not supported yet.');
     const entries = mp4Boxes(data, stsd.body + 8, stsd.end),
@@ -136,8 +161,9 @@ export function inspectMoof(data: Uint8Array, tracks: Mp4Track[]): FragmentTrack
     const children = mp4Boxes(data, traf.body, traf.end);
     if (children.some((box) => ['senc', 'saiz', 'saio', 'uuid'].includes(box.type)))
       throw new Error('Protected MP4 fragment metadata is not supported.');
-    const tfhd = child(data, traf, 'tfhd'),
-      flags = u32(data, tfhd.body) & 0xffffff,
+    const tfhd = child(data, traf, 'tfhd');
+    fields(tfhd, 8);
+    const flags = u32(data, tfhd.body) & 0xffffff,
       id = u32(data, tfhd.body + 4);
     const track = tracks.find((track) => track.id === id);
     if (
@@ -145,9 +171,13 @@ export function inspectMoof(data: Uint8Array, tracks: Mp4Track[]): FragmentTrack
       result.some((item) => item.id === id) ||
       flags & 1 ||
       !(flags & 0x20000) ||
-      flags & 0x10000
+      flags & 0x10000 ||
+      u32(data, tfhd.body) >>> 24 !== 0 ||
+      flags & ~0x3003b
     )
       throw new Error('Unsupported MP4 track or absolute fragment addressing.');
+    const optionalBytes = [2, 8, 16, 32].filter((flag) => flags & flag).length * 4;
+    fields(tfhd, 8 + optionalBytes);
     let cursor = tfhd.body + 8;
     if (flags & 2) {
       if (u32(data, cursor) !== 1) throw new Error('Changing MP4 sample description.');
@@ -162,15 +192,25 @@ export function inspectMoof(data: Uint8Array, tracks: Mp4Track[]): FragmentTrack
     const tfdt = child(data, traf, 'tfdt'),
       timeVersion = data[tfdt.body]!;
     if (timeVersion !== 0 && timeVersion !== 1) throw new Error('Unsupported MP4 decode time.');
+    fields(tfdt, timeVersion === 1 ? 12 : 8);
+    if (tfdt.end - tfdt.body !== (timeVersion === 1 ? 12 : 8) || u32(data, tfdt.body) & 0xffffff)
+      throw new Error('Malformed MP4 decode time.');
     const timePosition = tfdt.body + 4,
       base = timeVersion === 1 ? u64(data, timePosition) : u32(data, timePosition);
     const runs = children.filter((box) => box.type === 'trun');
     if (runs.length !== 1)
       throw new Error('Select MP4 fragments with one contiguous run per track.');
-    const run = runs[0]!,
-      runFlags = u32(data, run.body) & 0xffffff,
+    const run = runs[0]!;
+    fields(run, 12);
+    const runFlags = u32(data, run.body) & 0xffffff,
       samples = u32(data, run.body + 4);
-    if (!samples || !(runFlags & 1))
+    if (
+      !samples ||
+      !(runFlags & 1) ||
+      data[run.body]! > 1 ||
+      runFlags & ~0xf05 ||
+      (runFlags & 4 && runFlags & 0x400)
+    )
       throw new Error('MP4 run has no samples or relative data offset.');
     const dataOffset = view(data).getInt32(run.body + 8);
     let position = run.body + 12;

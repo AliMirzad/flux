@@ -1,0 +1,9 @@
+/* One ordered stylesheet for both extension entry points. */
+@import './styles.css';
+@import './refresh.css';
+@import './shell.css';
+@import './popup/popup.css';
+@import './popup/popup-refresh.css';
+@import './manager/add-dialog.css';
+@import './popup/popup-capture.css';
+@import './redesign.css';

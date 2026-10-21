@@ -101,7 +101,7 @@ test('finished Flux downloads are saved into a category folder inside Downloads 
   await manager.getByLabel('Download URL').fill(url);
   await manager
     .getByRole('dialog')
-    .getByRole('button', { name: 'Add download', exact: true })
+    .getByRole('button', { name: 'Start Download', exact: true })
     .click();
   await expect
     .poll(async () => (await jobs()).find((job) => job.url === url)?.state, { timeout: 45000 })
@@ -115,6 +115,21 @@ test('finished Flux downloads are saved into a category folder inside Downloads 
   );
   expect(target?.state).toBe('complete');
   expect(target!.filename.split(/[\\/]/).slice(-2)).toEqual(['General', job.filename]);
+  await expect(manager.getByText('Automatic saving is on')).toBeVisible();
+  // The Save button writes into the same category folder without opening a dialog.
+  await manager.getByText(job.filename).first().click();
+  await manager.getByRole('button', { name: 'Save again', exact: true }).click();
+  await expect
+    .poll(async () => (await jobs()).find((item) => item.id === job.id)?.savedDownloadId)
+    .not.toBe(job.savedDownloadId);
+  const again = (await jobs()).find((item) => item.id === job.id)!;
+  expect(again.state).toBe('COMPLETED');
+  const copy = await manager.evaluate(
+    async (downloadId) => (await chrome.downloads.search({ id: downloadId }))[0],
+    again.savedDownloadId!,
+  );
+  expect(copy!.filename.split(/[\\/]/).slice(-2)[0]).toBe('General');
+  await manager.getByRole('button', { name: 'Close dialog', exact: true }).click();
 });
 test('downloads Chrome keeps are routed into the same category folders', async () => {
   const url = `${base}/range?size=4096&native=1`;
@@ -138,4 +153,22 @@ test('downloads Chrome keeps are routed into the same category folders', async (
     )
     .toBe('General');
   await site.close();
+});
+test('Downloads-folder saving refuses staged corruption before starting a new native write', async () => {
+  const job = (await jobs()).find((item) => item.exported && item.engine !== 'browser')!;
+  const before = await manager.evaluate(() => chrome.downloads.search({}));
+  await manager.evaluate(async (id) => {
+    const partials = await (await navigator.storage.getDirectory()).getDirectoryHandle('partials');
+    const handle = await partials.getFileHandle(id);
+    const writer = await handle.createWritable({ keepExistingData: true });
+    await writer.write({ type: 'write', position: 0, data: new Uint8Array([255]) });
+    await writer.close();
+  }, job.id);
+  await manager.getByRole('button', { name: job.filename, exact: true }).click();
+  await manager.getByRole('button', { name: 'Save again', exact: true }).click();
+  await expect(manager.getByRole('dialog').getByRole('alert')).toContainText('SHA-256');
+  expect(
+    (await manager.evaluate(() => chrome.downloads.search({}))).map((item) => item.id),
+  ).toEqual(before.map((item) => item.id));
+  expect((await jobs()).find((item) => item.id === job.id)?.state).toBe('ASSEMBLING');
 });

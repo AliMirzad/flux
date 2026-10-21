@@ -1,0 +1,11 @@
+{
+  "ownSyntheticSamples": true,
+  "collidingSourceTrackIds": true,
+  "audioFrames": 185,
+  "originalAudioSha256": "ca0eaa2d0922d75e2f26a2631dbf72f6928b11848f92f2233e58eb9045f6c4e8",
+  "alternateAudioSha256": "2f6331e69171c4b365bd9871d842fd29cd896dbaf69fdf8249696f2d326a990a",
+  "durations": {
+    "video": [1.0504, 1.0797666666666668, 1.0501, 0.9029333333333334],
+    "audio": [0.9386458333333333, 1.088, 1.0453541666666668, 0.8737708333333334]
+  }
+}

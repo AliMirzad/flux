@@ -138,37 +138,39 @@ export class BandwidthLimiter {
     });
   }
 }
-// Hill climbing with memory: probes upward, keeps a step only when it measurably helps and
-// otherwise returns to the best measured count, so plateaus never ratchet the count down.
+// Starts at the allowed maximum, since ramping up from a few connections wastes most of a
+// transfer. Server pushback (errors, throttling) lowers the count; recovery then climbs back,
+// keeping a step only when it measurably helps and otherwise returning to the best count.
 export class AdaptiveController {
   target: number;
   private best: number;
   private bestRate = 0;
-  private growing = true;
+  private ceiling: number;
+  private ceilingUntil = 0;
   private last: number;
   private cooldown = 0;
-  private failedUntil = 0;
   constructor(
     readonly max: number,
     now = performance.now(),
   ) {
-    this.target = Math.max(1, Math.min(max, 2));
+    this.target = Math.max(1, max);
     this.best = this.target;
+    this.ceiling = this.target;
     this.last = now;
   }
   // `running` is how many connections are really open; a count that is not reached yet
   // (host slots taken, no ranges left) cannot be measured, so evaluation waits for it.
   sample(rate: number, failed = false, now = performance.now(), running = this.target) {
     if (failed) {
-      // One back-off per burst: simultaneous failures of several ranges must not cascade to 1.
-      if (now >= this.failedUntil) {
-        this.target = Math.max(1, Math.floor(this.target / 2));
-        this.best = this.target;
-        this.bestRate = 0;
-        this.growing = false;
-        this.failedUntil = now + 5000;
-        this.cooldown = now + 15000;
-      }
+      // A refusal with `running` open means the server copes with fewer; a burst of refusals
+      // therefore walks the count down to what the server accepts, a lone blip costs one.
+      this.target = Math.max(1, Math.min(this.target, running) - 1);
+      // The refused count is avoided for a minute so recovery does not trip it again at once.
+      this.ceiling = this.target;
+      this.ceilingUntil = now + 60000;
+      this.best = this.target;
+      this.bestRate = 0;
+      this.cooldown = now + 15000;
       this.last = now;
       return this.target;
     }
@@ -176,36 +178,24 @@ export class AdaptiveController {
       this.last = now;
       return this.target;
     }
-    // Speed samples cover three seconds; four leaves a settle second after each fine step.
-    // Doubling shows a large gain even through a partly stale window, so it moves faster.
-    if (now - this.last < (this.growing ? 2500 : 4000) || now < this.cooldown) return this.target;
+    // Speed samples cover three seconds; four leaves a settle second after each change.
+    if (now - this.last < 4000 || now < this.cooldown) return this.target;
     this.last = now;
     if (rate <= 0) return this.target;
-    if (this.target === this.best) {
-      // Fresh baseline at the best count before probing, since network conditions drift.
-      this.bestRate = rate;
-      return this.probe();
-    }
-    if (rate >= this.bestRate * (this.growing ? 1.1 : 1.03)) {
+    if (this.target === this.best || rate >= this.bestRate * 1.03) {
+      // At the best count this refreshes the baseline, since network conditions drift.
       this.best = this.target;
       this.bestRate = rate;
-      return this.probe();
+      return this.probe(now);
     }
-    if (this.growing && rate >= this.bestRate * 1.03) {
-      this.growing = false;
-      this.best = this.target;
-      this.bestRate = rate;
-      return this.probe();
-    }
-    this.growing = false;
     this.target = this.best;
     this.cooldown = now + 15000;
     return this.target;
   }
-  private probe() {
-    if (this.target >= this.max) return this.target;
-    const step = this.growing ? this.target : Math.max(1, Math.ceil(this.target / 8));
-    this.target = Math.min(this.max, this.target + step);
+  private probe(now: number) {
+    const limit = now < this.ceilingUntil ? Math.min(this.max, this.ceiling) : this.max;
+    if (this.target < limit)
+      this.target = Math.min(limit, this.target + Math.max(1, Math.ceil(this.target / 4)));
     return this.target;
   }
 }

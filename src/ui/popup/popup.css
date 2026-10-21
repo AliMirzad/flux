@@ -1,4 +1,4 @@
-body {
+body:has(.popup-shell) {
   min-width: 370px;
   min-height: 460px;
 }
@@ -163,4 +163,77 @@ body {
 .popup-credit strong {
   color: var(--accent);
   font-weight: 600;
+}
+.popup-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.popup-more {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.queue-chooser {
+  margin: 0 20px 12px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.queue-chooser h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+.chooser-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.chooser-files li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chooser-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.chooser-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chooser-buttons .button {
+  flex: 1;
+}
+.queue-chooser .choice {
+  padding: 8px 10px;
+}
+.queue-chooser .chooser-buttons .button {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.queue-chooser .chooser-buttons .text-button {
+  flex: none;
 }

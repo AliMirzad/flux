@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Repository } from '../../src/storage/repository';
 import { createJob } from '../../src/application/jobs';
 import { defaultSettings, type DownloadJob, type Settings } from '../../src/domain/model';
@@ -37,6 +37,7 @@ beforeEach(() => {
   committed = false;
   aborted = false;
   vi.stubGlobal('indexedDB', new IDBFactory());
+  vi.stubGlobal('IDBKeyRange', IDBKeyRange);
   vi.stubGlobal('Worker', ControlledWorker);
   vi.stubGlobal('chrome', undefined);
   vi.stubGlobal('navigator', {
@@ -98,6 +99,84 @@ function verifiedJob() {
 }
 
 describe('batch import, named queues and address refresh', () => {
+  it('never replays a received page file as its source page URL', async () => {
+    const job = { ...verifiedJob(), pageFile: true };
+    const manager = await initialize([job]);
+    for (const action of ['redownload', 'retry', 'resume', 'start'] as const)
+      await expect(manager.action(job.id, action)).rejects.toThrow(/website/);
+    await expect(manager.replaceSource(job.id, 'https://example.org/another')).rejects.toThrow(
+      /website/,
+    );
+    await expect(manager.browserDownload(job.id)).rejects.toThrow(/website/);
+    expect(
+      ControlledWorker.instances[0]!.commands.some((command) => command.type === 'start'),
+    ).toBe(false);
+    expect(manager.getSnapshot().jobs[0]?.sha256).toBe(job.sha256);
+  });
+  it('repeats both language choices for one video without merging or resetting them', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 21, 12));
+      const queue = {
+        id: 'audio-repeat',
+        name: 'Audio repeat',
+        paused: false,
+        maxActive: 1,
+        speedLimit: 0,
+        windowStart: '',
+        windowEnd: '',
+        repeatMinutes: 1,
+      };
+      await new Repository().putSettings({ ...defaultSettings, queues: [queue] });
+      const originals = ['en', 'fa'].map((language) => ({
+        ...verifiedJob(),
+        url: 'https://example.org/movie.m3u8',
+        queueId: queue.id,
+        media: {
+          kind: 'hls' as const,
+          audioUrl: `https://example.org/${language}.m3u8`,
+          audioLabel: language,
+        },
+      }));
+      const manager = await initialize(originals);
+      await vi.waitFor(() =>
+        expect(manager.getSnapshot().settings.queues[0]?.nextRunAt).toBeGreaterThan(Date.now()),
+      );
+      await vi.advanceTimersByTimeAsync(
+        manager.getSnapshot().settings.queues[0]!.nextRunAt! - Date.now(),
+      );
+      await vi.waitFor(() => expect(manager.getSnapshot().jobs).toHaveLength(4));
+      const repeated = manager
+        .getSnapshot()
+        .jobs.filter((job) => !originals.some((original) => original.id === job.id));
+      expect(repeated.map((job) => job.media?.audioLabel).sort()).toEqual(['en', 'fa']);
+      expect(repeated.every((job) => !job.segments.length && !!job.media?.audioUrl)).toBe(true);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+  it('retains distinct audio choices through batch deduplication, cancellation and redownload', async () => {
+    const manager = await initialize();
+    const inputs = ['en', 'fa'].map((language) => ({
+      url: 'https://example.org/video.m3u8',
+      media: 'hls' as const,
+      audioUrl: `https://example.org/${language}.m3u8`,
+      audioLabel: language,
+      startPaused: true,
+    }));
+    expect(await manager.addBatch(inputs)).toEqual({ added: 2, skipped: 0 });
+    const first = manager.getSnapshot().jobs.find((job) => job.media?.audioLabel === 'en')!;
+    await manager.action(first.id, 'cancel');
+    expect(manager.getSnapshot().jobs.find((job) => job.id === first.id)?.media?.audioUrl).toBe(
+      inputs[0]!.audioUrl,
+    );
+    await manager.action(first.id, 'redownload');
+    const command = ControlledWorker.instances[0]!.commands.find(
+      (command) => command.type === 'start',
+    )!;
+    expect(command.job?.media).toMatchObject({ audioUrl: inputs[0]!.audioUrl, audioLabel: 'en' });
+  });
   it('keeps a due failed job idle without consuming attempts until both global and queue windows open', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     try {
@@ -655,7 +734,7 @@ describe('manager coordination and export', () => {
           choose = resolve;
         }),
     );
-    const exporting = manager.exportFile(job.id);
+    const exporting = manager.exportFile(job.id, true);
     const rejected = expect(exporting).rejects.toThrow();
     await manager.action(job.id, 'remove');
     choose({ createWritable: vi.fn() });
@@ -668,7 +747,7 @@ describe('manager coordination and export', () => {
   it('commits verified destination bytes before marking the export complete', async () => {
     const job = verifiedJob();
     const manager = await initialize([job]);
-    await manager.exportFile(job.id);
+    await manager.exportFile(job.id, true);
     expect(committed).toBe(true);
     expect(aborted).toBe(false);
     expect(Buffer.concat(savedBytes)).toEqual(Buffer.from(fixtureBytes(0, size)));
@@ -680,7 +759,7 @@ describe('manager coordination and export', () => {
     const job = verifiedJob();
     job.sha256 = '0'.repeat(64);
     const manager = await initialize([job]);
-    await expect(manager.exportFile(job.id)).rejects.toThrow(/SHA-256/);
+    await expect(manager.exportFile(job.id, true)).rejects.toThrow(/SHA-256/);
     expect(committed).toBe(false);
     expect(aborted).toBe(true);
     expect(manager.getSnapshot().jobs[0]?.state).toBe('ASSEMBLING');
@@ -754,10 +833,41 @@ describe('manager coordination and export', () => {
       if (snapshot.state === 'COMPLETED') throw new Error('Metadata persistence unavailable');
       return original.call(this, snapshot);
     });
-    await expect(manager.exportFile(job.id)).rejects.toThrow(/Metadata|history|persist/i);
+    await expect(manager.exportFile(job.id, true)).rejects.toThrow(/Metadata|history|persist/i);
     expect(committed).toBe(true);
     expect(manager.getSnapshot().jobs[0]?.state).toBe('COMPLETED');
     expect(aborted).toBe(false);
+  });
+  it('retains a successful Downloads-folder save when its final history commit fails', async () => {
+    const download = vi.fn(async () => 42);
+    vi.stubGlobal('chrome', {
+      runtime: { id: 'fixture-extension', onMessage: { addListener: vi.fn() } },
+      downloads: {
+        download,
+        search: vi.fn(async () => [{ id: 42, state: 'complete', filename: 'Downloads/file.bin' }]),
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+      storage: { session: { set: vi.fn(async () => {}), remove: vi.fn(async () => {}) } },
+    });
+    await new Repository().putSettings({ ...defaultSettings, autoSave: false });
+    const job = verifiedJob(),
+      manager = await initialize([job]);
+    const { Repository: LoadedRepository } = await import('../../src/storage/repository');
+    const original = LoadedRepository.prototype.putJob;
+    vi.spyOn(LoadedRepository.prototype, 'putJob').mockImplementation(async function (
+      this: Repository,
+      snapshot: DownloadJob,
+    ) {
+      if (snapshot.state === 'COMPLETED') throw new Error('Metadata persistence unavailable');
+      return original.call(this, snapshot);
+    });
+    await expect(manager.exportFile(job.id)).rejects.toThrow(/saved successfully.*history/i);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(manager.getSnapshot().jobs[0]).toMatchObject({
+      state: 'COMPLETED',
+      exported: true,
+      savedDownloadId: 42,
+    });
   });
 
   it('does not start a queued job removed while another startup was awaiting persistence', async () => {
