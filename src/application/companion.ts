@@ -317,6 +317,8 @@ const inspectionErrors: Record<string, string> = {
   INVALID_URL: 'Enter a public HTTP(S) media URL without credentials.',
   BUSY: 'Another inspection is still running. Try again shortly.',
   CANCELED: 'Media inspection canceled.',
+  NETWORK_BLOCKED:
+    'Your network resolved a media host to a private or reserved address. The companion blocked the connection. It currently uses direct networking and does not inherit Chrome proxy settings.',
   EXTRACTION_FAILED:
     'Could not inspect this media. This preview does not support every website or extraction method.',
   UNSUPPORTED_CAPABILITY: 'Install a companion version that supports media inspection.',

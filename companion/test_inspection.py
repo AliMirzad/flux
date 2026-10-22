@@ -222,3 +222,38 @@ worker.main()
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NetworkFailureTests(unittest.TestCase):
+    def test_private_destination_keeps_a_distinct_type(self):
+        import socket
+        from flux_companion.network import DestinationDenied
+        policy = DirectNetworkPolicy()
+        with self.assertRaises(DestinationDenied):
+            policy.audit('socket.connect', (type('Socket', (), {'family': socket.AF_INET})(), ('10.10.34.36', 443)))
+
+    def test_classifies_nested_network_denials_without_returning_error_text(self):
+        from flux_companion.worker import failure_code
+        from flux_companion.network import DestinationDenied
+        denied = DestinationDenied('private signed URL and credentials')
+        transport = OSError('transport details')
+        transport.__cause__ = denied
+        outer = RuntimeError('extractor details')
+        outer.__context__ = transport
+        self.assertEqual(failure_code(outer), 'NETWORK_BLOCKED')
+        self.assertEqual(failure_code(NetworkDenied('external execution')), 'EXTRACTION_FAILED')
+        cycle = RuntimeError('cycle')
+        cycle.__context__ = cycle
+        self.assertEqual(failure_code(cycle), 'EXTRACTION_FAILED')
+
+    def test_worker_error_allowlist_preserves_network_denials_and_rejects_arbitrary_codes(self):
+        class Platform(MacOSPlatform):
+            def __init__(self, code):
+                self.code = code
+            def start_inspection_worker(self):
+                source = 'import sys;sys.stdin.readline();print(' + repr(json.dumps({'error': self.code})) + ')'
+                return subprocess.Popen([sys.executable, '-I', '-c', source], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        for code, expected in [('NETWORK_BLOCKED', 'NETWORK_BLOCKED'), ('private-secret', 'EXTRACTION_FAILED')]:
+            with self.subTest(code=code), self.assertRaises(InspectionFailure) as failure:
+                WorkerInspector(Platform(code)).inspect('https://example.com/video', threading.Event())
+            self.assertEqual(failure.exception.code, expected)

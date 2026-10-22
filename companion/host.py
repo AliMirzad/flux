@@ -159,6 +159,7 @@ class Session:
         if code:
             messages = {"DEPENDENCY_MISSING": "Install the supported yt-dlp Python package in the companion runtime.",
                         "CANCELED": "Media inspection canceled.",
+                        "NETWORK_BLOCKED": "The network resolved a media host to a nonpublic address. Direct inspection was blocked.",
                         "EXTRACTION_FAILED": "Could not inspect this media within the supported inspection policy."}
             return error(request_id, code, messages.get(code, "Media inspection failed."))
         return {"protocol": 1, "kind": "response", "id": request_id, "result": result}

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from flux_companion.composition import media_service
 from flux_companion.media import ProviderError, validate_source
-from flux_companion.network import DirectNetworkPolicy, LimitedReader, NetworkDenied, ResponseBudget
+from flux_companion.network import DestinationDenied, DirectNetworkPolicy, LimitedReader, NetworkDenied, ResponseBudget
 
 SUPPORTED_YTDLP = "2026.03.17"
 
@@ -114,6 +114,24 @@ def run(url):
                 "plans": result.inspection.plans}
 
 
+def failure_code(error):
+    # yt-dlp wraps transport exceptions several times. Classify by type without
+    # forwarding exception text, which may contain signed URLs or credentials.
+    pending, seen = [error], set()
+    for _ in range(32):
+        if not pending:
+            break
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, DestinationDenied):
+            return "NETWORK_BLOCKED"
+        pending.extend(cause for cause in (current.__cause__, current.__context__)
+                       if cause is not None)
+    return "EXTRACTION_FAILED"
+
+
 def main():
     command = sys.stdin.buffer.readline(65537)
     if len(command) > 65536 or not command.endswith(b"\n"):
@@ -129,9 +147,8 @@ def main():
         result = {"result": run(url)}
     except ImportError:
         result = {"error": "DEPENDENCY_MISSING"}
-    except Exception:
-        # Extractor errors can contain credentials and signed URLs.
-        result = {"error": "EXTRACTION_FAILED"}
+    except Exception as exc:
+        result = {"error": failure_code(exc)}
     payload = json.dumps(result, ensure_ascii=False, allow_nan=False).encode()
     if len(payload) > 256 * 1024:
         payload = b'{"error":"EXTRACTION_FAILED"}'

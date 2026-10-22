@@ -74,7 +74,7 @@ Emit `job.updated` snapshots no more than four times per second per job; termina
 
 ## Errors and shutdown
 
-Error envelope: `code`, sanitized `message`, `retryable`, optional `jobId`. Codes: `INVALID_REQUEST`, `INCOMPATIBLE_PROTOCOL`, `UNSUPPORTED_CAPABILITY`, `DEPENDENCY_MISSING`, `INVALID_URL`, `DESTINATION_DENIED`, `REVIEW_EXPIRED`, `FORMAT_UNAVAILABLE`, `NOT_FOUND`, `CONFLICT`, `BUSY`, `NETWORK_ERROR`, `PROXY_ERROR`, `EXTRACTION_FAILED`, `PROCESSING_FAILED`, `STORAGE_ERROR`, `CANCELED`, `INTERNAL_ERROR`. Retryability is advice; the user must explicitly retry in the initial release. Never include raw command lines, credentials, signed URL queries or extractor dumps.
+Error envelope: `code`, sanitized `message`, `retryable`, optional `jobId`. Codes: `INVALID_REQUEST`, `INCOMPATIBLE_PROTOCOL`, `UNSUPPORTED_CAPABILITY`, `DEPENDENCY_MISSING`, `INVALID_URL`, `DESTINATION_DENIED`, `REVIEW_EXPIRED`, `FORMAT_UNAVAILABLE`, `NOT_FOUND`, `CONFLICT`, `BUSY`, `NETWORK_ERROR`, `NETWORK_BLOCKED`, `PROXY_ERROR`, `EXTRACTION_FAILED`, `PROCESSING_FAILED`, `STORAGE_ERROR`, `CANCELED`, `INTERNAL_ERROR`. Retryability is advice; the user must explicitly retry in the initial release. Never include raw command lines, credentials, signed URL queries or extractor dumps.
 
 Disconnect cancels in-flight requests and stops child processes within the ADR's five-second budget. No final event is required after a broken pipe. On next start, reconcile active journal entries and any finalization intent before returning snapshots. The extension must not blindly repeat a timed-out create or infer job completion from EOF.
 

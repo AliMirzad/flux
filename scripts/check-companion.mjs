@@ -183,6 +183,21 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
   console.log(
     'PASS: local approval/revocation across real Chrome sessions; opaque destination handles and remote path rejection.',
   );
+  if (process.env.COMPANION_BLOCKED_SAMPLE_URL) {
+    await page
+      .getByLabel('Media URL', { exact: true })
+      .fill(process.env.COMPANION_BLOCKED_SAMPLE_URL);
+    await page.getByRole('button', { name: 'Inspect media', exact: true }).click();
+    await page
+      .getByRole('alert')
+      .filter({ hasText: 'Your network resolved a media host to a private or reserved address.' })
+      .waitFor({ timeout: 95000 });
+    if (await page.getByLabel('Available format', { exact: true }).count())
+      throw new Error('Blocked inspection retained a review.');
+    console.log(
+      'PASS: native destination denial reaches the UI as an actionable network restriction.',
+    );
+  }
   if (process.env.COMPANION_SAMPLE_URL) {
     await page.getByLabel('Media URL', { exact: true }).fill(process.env.COMPANION_SAMPLE_URL);
     await page.getByRole('button', { name: 'Inspect media', exact: true }).click();

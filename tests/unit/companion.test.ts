@@ -354,3 +354,26 @@ describe('native messaging permission activation', () => {
       await expect(operation()).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
+
+it('explains blocked network destinations without forwarding native error details', async () => {
+  const fake = fakeRuntime();
+  const result = inspectCompanion(
+    fake.runtime,
+    'https://example.com/video',
+    new AbortController().signal,
+  );
+  inspectReply(fake, {
+    ...diagnostics(),
+    capabilities: ['diagnostics', 'inspect', 'inspect.cancel'],
+  });
+  const request = fake.port.postMessage.mock.calls.at(-1)![0];
+  for (const callback of [...fake.messages])
+    callback({
+      protocol: 1,
+      kind: 'response',
+      id: request.id,
+      error: { code: 'NETWORK_BLOCKED', message: 'private signed URL and credentials' },
+    });
+  await expect(result).rejects.toThrow('does not inherit Chrome proxy settings');
+  expect(fake.port.disconnect).toHaveBeenCalledOnce();
+});

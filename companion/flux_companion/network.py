@@ -12,6 +12,10 @@ class NetworkDenied(OSError):
     pass
 
 
+class DestinationDenied(NetworkDenied):
+    pass
+
+
 class ResponseBudget:
     def __init__(self):
         self.remaining = 32 * 1024 * 1024
@@ -66,7 +70,7 @@ class DirectNetworkPolicy:
                 or ip in ipaddress.ip_network("64:ff9b::/96")
                 or ip in ipaddress.ip_network("64:ff9b:1::/48"))
             if not ip.is_global or transition:
-                raise NetworkDenied("Private destinations are not permitted")
+                raise DestinationDenied("Private destinations are not permitted")
             self.connections += 1
             if self.connections > 100:
                 raise NetworkDenied("Inspection connection limit reached")

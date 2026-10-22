@@ -60,7 +60,7 @@ class WorkerInspector:
                 raise InspectionFailure("EXTRACTION_FAILED")
             packet = json.loads(payload)
             if "error" in packet:
-                raise InspectionFailure(packet["error"] if packet["error"] == "DEPENDENCY_MISSING"
+                raise InspectionFailure(packet["error"] if packet["error"] in {"DEPENDENCY_MISSING", "NETWORK_BLOCKED"}
                                         else "EXTRACTION_FAILED")
             value = packet["result"]
             if not isinstance(value["providerId"], str) or not 1 <= len(value["providerId"]) <= 128:
