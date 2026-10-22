@@ -1,6 +1,6 @@
 # Optional media companion roadmap
 
-Date: 2026-10-22. Tracking: [issue #1](https://github.com/k4vrin/flux/issues/1).
+Date: 2026-10-22. Tracking: [issue #6](https://github.com/AliMirzad/flux/issues/6).
 
 The companion extends Flux with yt-dlp extraction and FFmpeg processing. Ordinary extension downloads remain available without installation. These are implementation milestones, not current support claims.
 

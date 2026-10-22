@@ -2,7 +2,7 @@
 
 Date: 2026-10-22. Status: proposed for review; milestone 1 design complete, runtime not implemented.
 
-Tracking: [issue #1](https://github.com/k4vrin/flux/issues/1). See the [roadmap](../media-companion-roadmap.md) and [protocol](../media-companion-protocol.md).
+Tracking: [issue #6](https://github.com/AliMirzad/flux/issues/6). See the [roadmap](../media-companion-roadmap.md) and [protocol](../media-companion-protocol.md).
 
 ## Problem and scope
 
