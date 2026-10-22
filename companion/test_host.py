@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import host
 import install
+from flux_companion.platforms import MacOSPlatform
 
 EXTENSION = "a" * 32
 ORIGIN = f"chrome-extension://{EXTENSION}/"
@@ -66,10 +67,10 @@ class HostTests(unittest.TestCase):
         self.assertEqual(host.Session().dispatch(request(params=[]))["error"]["code"], "INVALID_REQUEST")
 
     def test_missing_and_broken_dependencies(self):
-        with patch.object(host.shutil, "which", return_value=None):
-            self.assertEqual(host.dependency("ffmpeg"), {"available": False, "status": "missing"})
-        with patch.object(host.shutil, "which", return_value="/missing/ffmpeg"):
-            self.assertEqual(host.dependency("ffmpeg")["status"], "probe-failed")
+        with patch("flux_companion.platforms.shutil.which", return_value=None):
+            self.assertEqual(MacOSPlatform().probe_tool("ffmpeg"), {"available": False, "status": "missing"})
+        with patch("flux_companion.platforms.shutil.which", return_value="/missing/ffmpeg"):
+            self.assertEqual(MacOSPlatform().probe_tool("ffmpeg")["status"], "probe-failed")
 
     def test_installed_process_authorization_handshake_and_cleanup(self):
         with tempfile.TemporaryDirectory(prefix="flux companion ") as root:

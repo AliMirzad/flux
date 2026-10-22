@@ -19,6 +19,8 @@ This decision relaxes the earlier no-helper constraint only for the optional com
 3. A Python native messaging host, initially developed as source and later packaged with its runtime, owns extraction, processing, subprocess cleanup and an SQLite job journal. yt-dlp runs in an isolated child process so cancellation does not depend on a cooperative Python thread. FFmpeg children belong to that job's process group.
 4. A platform adapter owns host registration, approved destinations, dependency discovery and process-group termination. Installers do not alter browser or OS proxy settings.
 
+The current extracted platform contract covers dependency discovery/probing and installation locations; macOS registration stays in its installer. Destination and process-tree services remain future work. A separate `MediaProvider` contract normalizes inspection results, with explicit custom-provider precedence and yt-dlp behind an injected extraction backend. See [implemented adapter boundaries](../media-provider-adapters.md) for contracts, registration and remaining execution gates.
+
 Chrome native messaging carries control and bounded metadata only. Media bytes go directly from the host to the chosen native destination, outside OPFS. Native jobs have a separate namespace and journal; they do not masquerade as browser-engine or Chrome-download records. The companion journal is authoritative; any extension snapshot is a disposable cache.
 
 ## Lifecycle decision

@@ -52,4 +52,6 @@ PYTHON_PATH=/opt/homebrew/bin/python3.13 node scripts/check-companion.mjs
 
 Use your installed, supported Python path; the example records the tested runtime. This script launches an isolated Chrome profile, registers the host inside that temporary user-data directory, checks the Settings UI and missing-host behavior, then removes its files. It does not register into your normal profile. The temporary extension pregrants native messaging, so the normal optional permission prompt remains a manual acceptance gate. See the [milestone 2 evidence](../docs/verification-companion-02.md).
 
-Protocol and architecture: [v1 contract](../docs/media-companion-protocol.md), [ADR 002](../docs/architecture/002-optional-media-companion.md). No credentials or website URLs are needed for milestone 2.
+The installer copies the `flux_companion` package with an owned-file receipt. Uninstall uses that receipt to preserve unrelated files. The isolated launcher also disables bytecode generation so source cleanup does not leave generated package caches.
+
+Protocol and architecture: [v1 contract](../docs/media-companion-protocol.md), [ADR 002](../docs/architecture/002-optional-media-companion.md), [platform and custom-provider contracts](../docs/media-provider-adapters.md). No credentials or website URLs are needed for milestone 2.

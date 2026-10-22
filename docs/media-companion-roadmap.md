@@ -26,3 +26,5 @@ The design is recorded in [ADR 002](architecture/002-optional-media-companion.md
 ## Milestone 2 outcome
 
 The diagnostics-only host, macOS development installer and Settings connection check are implemented. See [setup](../companion/README.md) and [verification evidence](verification-companion-02.md). A real Chrome connection and missing-host failure passed with the documented runtime. Native media downloads remain disabled. Next: milestone 3 media inspection and bounded quality/track review.
+
+Before milestone 3, the [platform and provider boundaries](media-provider-adapters.md) were extracted: shared host logic accepts a platform adapter, and media inspection uses an explicit provider registry with yt-dlp normalization and custom adapters. These contracts are tested with injected backends; the host still rejects live inspection until network policy and cancellation are implemented.

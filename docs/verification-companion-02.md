@@ -12,16 +12,18 @@ Date: 2026-10-22. Platform: macOS arm64, installed Chrome 155.0.8059.86, Node 26
 
 ## Results
 
-| Check                             | Result                                                                                                                  |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| TypeScript unit suite             | 92 tests passed across 13 files, including 9 new companion tests                                                        |
-| Existing integration suite        | 68 tests passed across 5 files with one worker                                                                          |
-| Python host/installer suite       | 8 tests passed, including real framed subprocess exchange, isolated install/uninstall and failed-registration rollback  |
-| Extension build and package audit | Passed; native messaging remains optional in the distributable                                                          |
-| Actual Chrome -> native host      | Passed with Homebrew Python 3.13.5; Settings rendered companion version and dependency status                           |
-| Missing-host recovery             | Passed after removing the temporary registration; a new check cleared old diagnostics and displayed an actionable error |
+| Check                               | Result                                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| TypeScript unit suite               | 92 tests passed across 13 files, including 9 new companion tests                                                               |
+| Existing integration suite          | 68 tests passed across 5 files with one worker                                                                                 |
+| Python host/installer/adapter suite | 18 tests passed, including real framed subprocess exchange, installer ownership, provider selection and metadata normalization |
+| Extension build and package audit   | Passed; native messaging remains optional in the distributable                                                                 |
+| Actual Chrome -> native host        | Passed with Homebrew Python 3.13.5; Settings rendered companion version and dependency status                                  |
+| Missing-host recovery               | Passed after removing the temporary registration; a new check cleared old diagnostics and displayed an actionable error        |
 
 Native acceptance uses `PYTHON_PATH=/opt/homebrew/bin/python3.13 node scripts/check-companion.mjs` against a built `dist`. It uses a disposable extension/profile and a registration under that profile's `NativeMessagingHosts`. Native permission is pregranted only in the test copy. The host source and launcher are unmodified installer outputs for the final acceptance run. Temporary profiles and registrations are cleaned up.
+
+After extracting the [adapter boundaries](media-provider-adapters.md), all 18 Python tests and both actual Chrome checks passed again with Homebrew Python 3.13.5. The installed host imports its copied package under isolated Python mode. The TypeScript unit/integration/build results above are from milestone 2; this Python refactor did not change extension code. Provider tests use fixtures and custom adapters, not live yt-dlp extraction. Injecting a fake Windows platform proves host separation, not Windows runtime support.
 
 ## Findings and limits
 

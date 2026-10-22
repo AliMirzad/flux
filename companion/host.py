@@ -2,13 +2,15 @@
 
 import argparse
 import json
-import platform
 import re
-import shutil
 import struct
-import subprocess
 import sys
 from pathlib import Path
+
+# Isolated Python excludes the script directory. Trust only this installed,
+# owner-writable distribution for companion imports, never ambient PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from flux_companion.platforms import current_platform
 
 HOST_NAME = "com.flux.media_companion"
 VERSION = "0.1.0"
@@ -66,50 +68,17 @@ def error(request_id, code, message):
             "error": {"code": code, "message": message, "retryable": False}}
 
 
-def dependency(name):
-    # Chrome does not inherit an interactive shell's PATH. Search known install
-    # locations without invoking a shell or accepting executable paths over IPC.
-    executable = shutil.which(name, path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
-    if not executable:
-        return {"available": False, "status": "missing"}
-    try:
-        flag = "--version" if name == "yt-dlp" else "-version"
-        with subprocess.Popen([executable, flag], stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as child:
-            try:
-                # Version output is bounded even if a broken tool emits forever.
-                import selectors
-                selector = selectors.DefaultSelector()
-                try:
-                    selector.register(child.stdout, selectors.EVENT_READ)
-                    if not selector.select(timeout=2):
-                        return {"available": False, "status": "probe-failed"}
-                    output = child.stdout.read1(512)
-                finally:
-                    selector.close()
-            finally:
-                if child.poll() is None:
-                    child.kill()
-                child.wait(timeout=2)
-        first_line = output.decode("utf-8", errors="replace").splitlines()[0]
-        # Return only a version token, never arbitrary executable output/paths.
-        match = re.search(r"(?<!\w)(?:n)?\d[\w.+-]{0,63}", first_line)
-        if not match:
-            return {"available": False, "status": "probe-failed"}
-        return {"available": True, "version": match.group(0), "status": "available"}
-    except (OSError, subprocess.SubprocessError, IndexError):
-        return {"available": False, "status": "probe-failed"}
-
-
-def diagnostics():
-    return {"companionVersion": VERSION, "protocol": 1, "platform": platform.system().lower(),
+def diagnostics(adapter):
+    return {"companionVersion": VERSION, "protocol": 1, "platform": adapter.name,
             "capabilities": ["diagnostics"],
-            "dependencies": {"ytDlp": dependency("yt-dlp"),
-                             "ffmpeg": dependency("ffmpeg"), "ffprobe": dependency("ffprobe")}}
+            "dependencies": {"ytDlp": adapter.probe_tool("yt-dlp"),
+                             "ffmpeg": adapter.probe_tool("ffmpeg"),
+                             "ffprobe": adapter.probe_tool("ffprobe")}}
 
 
 class Session:
-    def __init__(self):
+    def __init__(self, adapter=None):
+        self.adapter = adapter if adapter is not None else current_platform()
         self.negotiated = False
 
     def dispatch(self, request):
@@ -133,7 +102,7 @@ class Session:
             return error(request_id, "INVALID_REQUEST", "Send hello before other commands.")
         elif method != "diagnostics":
             return error(request_id, "UNSUPPORTED_CAPABILITY", "This companion supports connection diagnostics only.")
-        return {"protocol": 1, "kind": "response", "id": request_id, "result": diagnostics()}
+        return {"protocol": 1, "kind": "response", "id": request_id, "result": diagnostics(self.adapter)}
 
 
 def authorized(config_path, origin):
