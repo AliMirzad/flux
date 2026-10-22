@@ -1,6 +1,6 @@
 # ADR 002: Optional local media companion
 
-Date: 2026-10-22. Status: proposed for review; milestone 1 design complete, runtime not implemented.
+Date: 2026-10-22. Status: proposed for review; milestone 1 design and milestone 2 diagnostics implemented. Media job execution remains unimplemented.
 
 Tracking: [issue #6](https://github.com/AliMirzad/flux/issues/6). See the [roadmap](../media-companion-roadmap.md) and [protocol](../media-companion-protocol.md).
 
@@ -10,7 +10,7 @@ Flux's browser engine is appropriate for public direct downloads and its support
 
 The initial scale is one local OS user, one Chrome profile connection and one running native media job. No remote service, Telegram integration, cloud storage integration or browser-cookie import is included. DRM processing and arbitrary executable commands are excluded. macOS is first; Windows follows after its own installer and runtime acceptance.
 
-This decision relaxes the earlier no-helper constraint only for the optional companion. ADR 001 continues to govern browser-engine jobs. Earlier README and capability-audit claims describe the shipped browser-only runtime; this ADR does not claim native functionality exists.
+This decision relaxes the earlier no-helper constraint only for the optional companion. ADR 001 continues to govern browser-engine jobs. Earlier README and capability-audit claims describe the shipped browser-only runtime; only connection diagnostics currently exist; media execution remains planned.
 
 ## Components and ownership
 
@@ -55,6 +55,6 @@ Reserve opaque proxy profile IDs now; actual proxy support ships in milestone 7.
 
 ## Verification and rollout
 
-Milestone 2 implements only framing, origin validation, hello/capabilities, dependency diagnostics and installation. Test malformed/oversized/truncated frames, incompatible versions, disconnect and reconnect in an isolated profile. Subsequent milestones test duplicate-safe job creation, stale review, journal crashes, cancellation at each processing phase, path confinement, playable output and routing failures. Validate macOS and Windows independently. Packaging/license/signing review precedes distribution.
+Milestone 2 implements only framing, origin validation, hello/capabilities, dependency diagnostics and development installation. Diagnostics use a temporary manager-owned port that closes after its response; the job-lifetime port belongs to later milestones. Test malformed/oversized/truncated frames, incompatible versions, disconnect and reconnect in an isolated profile. Subsequent milestones test duplicate-safe job creation, stale review, journal crashes, cancellation at each processing phase, path confinement, playable output and routing failures. Validate macOS and Windows independently. Packaging/license/signing review precedes distribution.
 
 Official references: [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), [yt-dlp embedding and dependencies](https://github.com/yt-dlp/yt-dlp), [Chrome proxy scope](https://developer.chrome.com/docs/extensions/reference/api/proxy).

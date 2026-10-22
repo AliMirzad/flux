@@ -1,6 +1,6 @@
 # Media companion protocol v1
 
-Status: proposed contract for milestone 1; no native host or extension transport is implemented yet. See [ADR 002](architecture/002-optional-media-companion.md).
+Status: milestone 1 contract with the milestone 2 hello/diagnostics subset implemented. Inspection and job operations remain disabled. See [ADR 002](architecture/002-optional-media-companion.md).
 
 ## Transport and bounds
 
@@ -9,29 +9,50 @@ Host name: `com.flux.media_companion`. Use Chrome native messaging, UTF-8 JSON w
 Every envelope has `protocol: 1`, `kind: request | response | event` and a bounded string `id`. Responses echo the request ID. Requests contain `method` and `params`; responses contain exactly one of `result` or `error`. Events contain `event`, `jobId`, `revision` and `data`. UUIDs identify requests, reviews and jobs; reject strings over 128 characters. Ignore unknown optional fields for forward compatibility, but reject unknown enum values and incompatible protocol majors. Capability names gate optional operations; protocol version alone does not enable features.
 
 ```json
-{"protocol":1,"kind":"request","id":"a7f8c4df-009c-4ef9-9902-f8e97806479a","method":"hello","params":{"extensionVersion":"0.7.0"}}
+{
+  "protocol": 1,
+  "kind": "request",
+  "id": "a7f8c4df-009c-4ef9-9902-f8e97806479a",
+  "method": "hello",
+  "params": { "extensionVersion": "0.7.0" }
+}
 ```
 
 ```json
-{"protocol":1,"kind":"response","id":"a7f8c4df-009c-4ef9-9902-f8e97806479a","result":{"companionVersion":"0.1.0","protocol":1,"capabilities":["diagnostics"],"platform":"darwin","dependencies":{"ytDlp":{"available":false},"ffmpeg":{"available":false}}}}
+{
+  "protocol": 1,
+  "kind": "response",
+  "id": "a7f8c4df-009c-4ef9-9902-f8e97806479a",
+  "result": {
+    "companionVersion": "0.1.0",
+    "protocol": 1,
+    "capabilities": ["diagnostics"],
+    "platform": "darwin",
+    "dependencies": {
+      "ytDlp": { "available": false, "status": "missing" },
+      "ffmpeg": { "available": false, "status": "missing" },
+      "ffprobe": { "available": false, "status": "missing" }
+    }
+  }
+}
 ```
 
 These are illustrative wire examples, not evidence of installed binaries or supported capabilities. Reject all commands except `hello` until negotiation succeeds. Initial request deadlines: hello/diagnostics 10 seconds, inspect 90 seconds, journal/control operations 10 seconds. A timeout means unknown outcome for a mutation; reconcile using its stable job ID before retrying. Maximum eight outstanding requests, one inspection and one running native job. Queue at most 100 unfinished jobs; additional creates receive `BUSY`.
 
 ## Methods
 
-| Method | Parameters | Result / rule |
-| --- | --- | --- |
-| `hello` | `extensionVersion` | Version, platform, explicit capabilities and dependency availability/versions; no absolute executable paths |
-| `diagnostics` | none | Redacted dependency/registration status and actionable codes; available in milestone 2 |
-| `inspect` | `url`, optional `proxyProfileId` | Opaque `reviewId`, sanitized title, duration or null, at most 200 formats and `expiresAt`; no raw extractor JSON or signed media URLs |
-| `inspect.cancel` | `requestId` | Cancels the referenced active inspection; idempotent |
-| `destinations.list` | none | At most 50 approved opaque destination IDs and display labels; configuration is local, not an arbitrary path command |
-| `jobs.create` | `jobId`, `reviewId`, `selectionId`, `output: video | audio-mp3`, `destinationId`, optional `proxyProfileId` | Durable snapshot after commit; defaults to explicit direct route until proxy capability exists |
-| `jobs.list` | optional cursor, `limit` 1–50 | Journal snapshots, next opaque cursor or null |
-| `jobs.get` | `jobId` | Authoritative snapshot or `NOT_FOUND` |
-| `jobs.cancel` | `jobId` | Snapshot with `cancelRequested`; completion event follows after children stop; repeated cancel is safe |
-| `jobs.retry` | `jobId`, `expectedRevision` | New attempt on the same job after compatible state/revision validation; reinspection required if the review/resource changed |
+| Method              | Parameters                                                                                                        | Result / rule                                                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`             | `extensionVersion`                                                                                                | Version, platform, explicit capabilities and dependency availability/versions; no absolute executable paths                           |
+| `diagnostics`       | none                                                                                                              | Redacted dependency/registration status and actionable codes; available in milestone 2                                                |
+| `inspect`           | `url`, optional `proxyProfileId`                                                                                  | Opaque `reviewId`, sanitized title, duration or null, at most 200 formats and `expiresAt`; no raw extractor JSON or signed media URLs |
+| `inspect.cancel`    | `requestId`                                                                                                       | Cancels the referenced active inspection; idempotent                                                                                  |
+| `destinations.list` | none                                                                                                              | At most 50 approved opaque destination IDs and display labels; configuration is local, not an arbitrary path command                  |
+| `jobs.create`       | `jobId`, `reviewId`, `selectionId`, `output` (`video` or `audio-mp3`), `destinationId`, optional `proxyProfileId` | Durable snapshot after commit; defaults to explicit direct route until proxy capability exists                                        |
+| `jobs.list`         | optional cursor, `limit` 1–50                                                                                     | Journal snapshots, next opaque cursor or null                                                                                         |
+| `jobs.get`          | `jobId`                                                                                                           | Authoritative snapshot or `NOT_FOUND`                                                                                                 |
+| `jobs.cancel`       | `jobId`                                                                                                           | Snapshot with `cancelRequested`; completion event follows after children stop; repeated cancel is safe                                |
+| `jobs.retry`        | `jobId`, `expectedRevision`                                                                                       | New attempt on the same job after compatible state/revision validation; reinspection required if the review/resource changed          |
 
 `inspect` retains source/selection metadata privately for at most ten minutes. Bind the review to the selected route and proxy-profile revision; creating a job with a different route requires a new inspection. Recheck before dispatch; expired reviews require a new inspection. Selection IDs bind actual available format combinations and output capability. A successful inspection is not a download guarantee. Bound URL inputs to 8192 characters, titles/labels to 512 characters and error messages to 1024 characters. Large format sets return a bounded subset with `truncated: true`; do not silently imply it is the full list.
 

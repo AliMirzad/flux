@@ -20,6 +20,12 @@ const allowed = new Set([
 ]);
 if (manifest.permissions.some((permission) => !allowed.has(permission)))
   fail('Unexpected packaged permission.');
+if (
+  manifest.optional_permissions?.some(
+    (permission) => !['notifications', 'nativeMessaging'].includes(permission),
+  )
+)
+  fail('Unexpected optional packaged permission.');
 const csp = manifest.content_security_policy.extension_pages;
 if (
   csp.includes("'unsafe-eval'") ||

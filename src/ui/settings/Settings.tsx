@@ -9,6 +9,7 @@ import {
 } from '../../domain/model';
 import { folderSegments } from '../../shared/files';
 import { bytes } from '../components/format';
+import { Companion } from './Companion';
 const categoryNames = Object.keys(defaultSettings.categoryFolders) as Category[];
 export function Settings({
   manager,
@@ -426,6 +427,7 @@ export function Settings({
           </button>
         </div>
       </form>
+      <Companion />
       <section className="storage-settings panel">
         <div>
           <h3>Download folder</h3>

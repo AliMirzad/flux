@@ -13,7 +13,7 @@
     "scripting",
     "webRequest"
   ],
-  "optional_permissions": ["notifications"],
+  "optional_permissions": ["notifications", "nativeMessaging"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Flux download manager" },
