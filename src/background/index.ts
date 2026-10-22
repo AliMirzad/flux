@@ -5,6 +5,7 @@ import { filenameFromHeaders } from '../shared/files';
 import { downloadsRelativePath, sanitizeFilename } from '../shared/files';
 import { createJob } from '../application/jobs';
 import { RequestLedger } from './request-ledger';
+import { requestObservation } from './request-observation';
 import { captureOrigins, eligibleLink, excludedHost } from '../shared/capture';
 import { probe, HttpError } from '../engine/network/http';
 import { HostPermissionError } from '../engine/network/policy';
@@ -256,7 +257,9 @@ function rememberBrowserFallback(url: string) {
   while (nativeFallbacks.size >= 64) nativeFallbacks.delete(nativeFallbacks.keys().next().value!);
   nativeFallbacks.set(url, Date.now());
 }
-chrome.webRequest.onBeforeRequest.addListener(
+const configureRequestObservation = requestObservation(
+  chrome.permissions,
+  chrome.webRequest,
   (details) => {
     try {
       validateUrl(details.url);
@@ -266,9 +269,6 @@ chrome.webRequest.onBeforeRequest.addListener(
     }
     return undefined;
   },
-  { urls: captureOrigins },
-);
-chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.statusCode < 300 || details.statusCode >= 400) return undefined;
     const location = details.responseHeaders?.find(
@@ -277,9 +277,9 @@ chrome.webRequest.onHeadersReceived.addListener(
     if (location) ledger.recordRedirect(details.url, location, details.initiator);
     return undefined;
   },
-  { urls: captureOrigins },
-  ['responseHeaders'],
 );
+// Worker evaluation also happens after dormancy, without an onStartup event.
+void configureRequestObservation().catch((error) => console.error(safeError(error)));
 async function resolveRedirect(from: string, location: string | null, signal?: AbortSignal) {
   const source = validateUrl(from);
   if (!(await chrome.permissions.contains({ origins: [`${source.origin}/*`] })))
@@ -333,6 +333,7 @@ async function openManager(hash = '') {
   } else await chrome.tabs.create({ url: url + hash });
 }
 async function applyCaptureConfiguration() {
+  await configureRequestObservation();
   const settings = await repository.getSettings();
   const registered = await chrome.scripting.getRegisteredContentScripts();
   if (!settings.interception) {
@@ -685,11 +686,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message.type === 'prepare-request' && typeof message.url === 'string') {
     // The explicit request wakes a dormant MV3 worker before fetch can emit headers.
-    // Acknowledgement means the synchronous webRequest listeners above are installed.
+    // Acknowledge only once observers cover the approved destination.
     void (async () => {
       const url = validateUrl(message.url);
       if (!(await chrome.permissions.contains({ origins: [`${url.origin}/*`] })))
         throw new HostPermissionError(url.origin);
+      await configureRequestObservation();
       ledger.prepare(url.href);
       return { url: url.href };
     })().then(respond, (error) =>
