@@ -1,5 +1,7 @@
 # Flux download manager
 
+An optional native media companion is being designed. See the [roadmap](docs/media-companion-roadmap.md), [architecture decision](docs/architecture/002-optional-media-companion.md), and [protocol](docs/media-companion-protocol.md). It is not implemented or required by the current extension.
+
 Flux is a browser-native Chrome MV3 download manager with a real segmented HTTP engine, persistent OPFS staging, and explicit Save As export. **Version 0.6.0 is an engineering preview, not a production-readiness claim.** Keep the manager tab open during Flux engine transfers. No native host, desktop app, offscreen document, account, or remote processing service is required.
 
 ## Build and install
