@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  companionReloadMessage,
   inspectCompanion,
   listCompanionDestinations,
   parseDestinations,
@@ -325,5 +326,31 @@ describe('companion inspection boundary', () => {
     await vi.advanceTimersByTimeAsync(90000);
     await rejected;
     expect(fake.port.disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('native messaging permission activation', () => {
+  it('offers reload recovery for every operation when an open page lacks the native API', async () => {
+    const runtime = { getManifest: () => ({ version: '0.7.0' }) } as Parameters<
+      typeof probeCompanion
+    >[0];
+    const signal = new AbortController().signal;
+    for (const operation of [
+      () => probeCompanion(runtime, signal),
+      () => listCompanionDestinations(runtime, signal),
+      () => inspectCompanion(runtime, 'https://example.com/video', signal, () => {}),
+    ])
+      await expect(operation()).rejects.toThrow(companionReloadMessage);
+  });
+  it('preserves cancellation when the native API is unavailable', async () => {
+    const runtime = {} as Parameters<typeof probeCompanion>[0];
+    const controller = new AbortController();
+    controller.abort();
+    for (const operation of [
+      () => probeCompanion(runtime, controller.signal),
+      () => listCompanionDestinations(runtime, controller.signal),
+      () => inspectCompanion(runtime, 'https://example.com/video', controller.signal, () => {}),
+    ])
+      await expect(operation()).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

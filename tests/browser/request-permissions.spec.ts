@@ -32,6 +32,17 @@ test('fresh install and worker wake do not register observers without website ac
     const manager = await context.newPage();
     await manager.goto(`chrome-extension://${id}/manager.html`);
     await expect(manager.getByRole('heading', { name: 'All downloads.' })).toBeVisible();
+    await manager.getByRole('button', { name: 'Settings', exact: true }).click();
+    // Reproduce the API shape observed after a first permission grant: request
+    // succeeds but this document's native bindings remain unavailable until reload.
+    await manager.evaluate(() => {
+      chrome.permissions.request = async () => true;
+    });
+    await manager.getByRole('button', { name: 'Check companion connection', exact: true }).click();
+    await expect(manager.getByRole('alert')).toContainText('Chrome needs Flux to reload');
+    await expect(manager.getByRole('alert')).not.toContainText('Install the macOS companion');
+    await manager.getByRole('button', { name: 'Reload Flux', exact: true }).click();
+    await expect(manager.getByRole('heading', { name: 'All downloads.' })).toBeVisible();
     const granted = await manager.evaluate(() => chrome.permissions.getAll());
     expect(granted.origins ?? []).toEqual([]);
     const errors = () =>

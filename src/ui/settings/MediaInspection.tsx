@@ -1,3 +1,4 @@
+import { CompanionError } from './CompanionError';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   inspectCompanion,
@@ -197,11 +198,7 @@ export function MediaInspection() {
             folder needs approval again.
           </p>
         )}
-        {folderError && (
-          <p role="alert" className="error-message">
-            {folderError}
-          </p>
-        )}
+        {folderError && <CompanionError message={folderError} />}
       </div>
       <form className="form-stack" onSubmit={(event) => void inspect(event)}>
         <label>
@@ -226,11 +223,7 @@ export function MediaInspection() {
             </button>
           )}
         </div>
-        {error && (
-          <p role="alert" className="error-message">
-            {error}
-          </p>
-        )}
+        {error && <CompanionError message={error} />}
         {review && (
           <div className="form-stack" aria-label="Media review">
             <p role="status">{review.title}</p>

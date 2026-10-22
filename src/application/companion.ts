@@ -1,4 +1,6 @@
 export const companionHost = 'com.flux.media_companion';
+export const companionReloadMessage =
+  'Chrome needs Flux to reload after approving companion access. Finish or pause active downloads, reload Flux, then reopen Settings and try again.';
 const maxFrame = 256 * 1024;
 
 export interface CompanionDiagnostics {
@@ -44,6 +46,8 @@ export function listCompanionDestinations(
 ): Promise<CompanionDestination[]> {
   if (signal.aborted)
     return Promise.reject(new DOMException('Folder check canceled.', 'AbortError'));
+  if (typeof runtime.connectNative !== 'function')
+    return Promise.reject(new Error(companionReloadMessage));
   return new Promise((resolve, reject) => {
     let port: chrome.runtime.Port;
     try {
@@ -160,6 +164,8 @@ export function probeCompanion(
 ): Promise<CompanionDiagnostics> {
   if (signal.aborted)
     return Promise.reject(new DOMException('Connection check canceled.', 'AbortError'));
+  if (typeof runtime.connectNative !== 'function')
+    return Promise.reject(new Error(companionReloadMessage));
   return new Promise((resolve, reject) => {
     let port: chrome.runtime.Port;
     try {
@@ -325,6 +331,8 @@ export function inspectCompanion(
   disconnectedAfterReview: () => void = () => {},
 ): Promise<CompanionReview> {
   if (signal.aborted) return Promise.reject(new DOMException('Inspection canceled.', 'AbortError'));
+  if (typeof runtime.connectNative !== 'function')
+    return Promise.reject(new Error(companionReloadMessage));
   return new Promise((resolve, reject) => {
     let port: chrome.runtime.Port;
     try {

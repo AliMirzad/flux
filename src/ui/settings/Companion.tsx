@@ -1,3 +1,4 @@
+import { CompanionError } from './CompanionError';
 import { useEffect, useRef, useState } from 'react';
 import { probeCompanion, type CompanionDiagnostics } from '../../application/companion';
 
@@ -107,11 +108,7 @@ export function Companion() {
       >
         {busy ? 'Checking companion…' : 'Check companion connection'}
       </button>
-      {error && (
-        <p role="alert" className="error-message">
-          {error}
-        </p>
-      )}
+      {error && <CompanionError message={error} />}
       {result && (
         <div role="status">
           <p>
