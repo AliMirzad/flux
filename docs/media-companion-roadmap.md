@@ -32,3 +32,9 @@ Before milestone 3, the [platform and provider boundaries](media-provider-adapte
 ## Milestone 3 outcome
 
 Settings now provides single-item media inspection, bounded format selection and cancellation. The companion runs pinned yt-dlp in a worker with direct-only network policy and retains one private review for at most ten minutes or until disconnect. Unknown duration/tracks remain visibly unknown. See [inspection evidence and limits](verification-companion-03.md). The next milestone is the first complete native download, including approved destinations, processing and output verification.
+
+## Milestone 4 progress: approved destinations
+
+The local configuration command can approve, list and revoke existing save folders. The native host exposes only opaque destination IDs and labels through `destinations.list`; paths and approval mutations are local-only. Approvals survive reinstall, bind to canonical folder identity and become unavailable after folder replacement. macOS private database handling stays behind the platform adapter. See [destination verification](verification-companion-04.md).
+
+Milestone 4 remains open. Native job creation, confined staged writes, selected-media execution, merging/conversion and independently verified playable output are still required.

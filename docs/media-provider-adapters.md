@@ -20,7 +20,7 @@ flowchart TD
 
 `ProbeRunner` separates bounded version probes from discovery. Its pipe reader uses a thread instead of Unix selectors so the shared probing mechanism can also be used with Windows pipes. This runner is only for short version queries, not downloads.
 
-A Windows implementation can supply the same platform contract without changing protocol handling or providers. It will still need an executable launcher, Chrome registry registration, dependency packaging and Windows acceptance. macOS supplies inspection-worker creation and termination. Download process-tree supervision, approved destinations and credential storage remain future work.
+A Windows implementation can supply the same platform contract without changing protocol handling or providers. It will still need an executable launcher, Chrome registry registration, dependency packaging and Windows acceptance. macOS supplies inspection-worker creation and termination. `data_location` keeps saved approvals outside the replaceable installation, and `prepare_private_database` owns macOS file permissions and link checks. A Windows adapter must implement equivalent private storage using Windows access controls. Shared destination lookup uses SQLite and opaque handles. Download process-tree supervision, safe staged file creation and credential storage remain future work.
 
 ## Media providers
 

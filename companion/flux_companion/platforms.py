@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import signal
+import stat
 import sys
 import threading
 from dataclasses import dataclass
@@ -69,6 +70,12 @@ class PlatformAdapter(Protocol):
 
     def install_locations(self, home: Path) -> InstallLocations: ...
 
+    def data_location(self, home: Path) -> Path: ...
+
+    def prepare_private_database(self, directory: Path, name: str, create: bool) -> Path | None: ...
+
+    def folder_identity(self, path: Path) -> tuple[Path, str, str, str]: ...
+
     def start_inspection_worker(self) -> subprocess.Popen: ...
 
     def stop_inspection_worker(self, child: subprocess.Popen) -> None: ...
@@ -104,6 +111,49 @@ class MacOSPlatform:
     def install_locations(self, home: Path) -> InstallLocations:
         return InstallLocations(home / "Library/Application Support/Flux/Media Companion",
                                 home / "Library/Application Support/Google/Chrome/NativeMessagingHosts")
+
+    def data_location(self, home: Path) -> Path:
+        # Keep user approvals outside the replaceable installation receipt.
+        return home / "Library/Application Support/Flux/Media Companion Data"
+
+    def folder_identity(self, path: Path) -> tuple[Path, str, str, str]:
+        resolved = path.resolve(strict=True)
+        info = resolved.stat()
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("Choose an existing directory.")
+        # Creation time also distinguishes an inode reused after deletion.
+        return resolved, str(info.st_dev), str(info.st_ino), str(info.st_birthtime)
+
+    def prepare_private_database(self, directory: Path, name: str, create: bool) -> Path | None:
+        if not name or Path(name).name != name:
+            raise ValueError("Expected a database filename.")
+        if not directory.exists() and not directory.is_symlink():
+            if not create:
+                return None
+            directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+        info = directory.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077):
+            raise ValueError("Companion data must be an owner-only directory.")
+        database = directory / name
+        if not database.exists() and not database.is_symlink() and not create:
+            return None
+        # SQLite opens its own files. Reject links and shared files first; the
+        # enclosing directory is trusted to this OS account, not other users.
+        flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_CREAT if create else 0)
+        with os.fdopen(os.open(database, flags, 0o600), "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077 or info.st_nlink != 1):
+                raise ValueError("Companion data must be an owner-only file.")
+        for suffix in ("-journal", "-wal", "-shm"):
+            sibling = Path(str(database) + suffix)
+            if sibling.exists() or sibling.is_symlink():
+                info = sibling.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or info.st_mode & 0o077 or info.st_nlink != 1):
+                    raise ValueError("Unsafe companion database sidecar.")
+        return database
 
     def start_inspection_worker(self):
         return subprocess.Popen(

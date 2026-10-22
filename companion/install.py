@@ -14,19 +14,22 @@ from flux_companion.platforms import current_platform
 HOST_NAME = "com.flux.media_companion"
 
 
-def install(extension_id, host_dir, manifest_dir):
+def install(extension_id, host_dir, manifest_dir, data_dir=None):
     if not re.fullmatch(r"[a-p]{32}", extension_id):
         raise ValueError("Copy the 32-letter extension ID from chrome://extensions.")
     manifest = manifest_dir / (HOST_NAME + ".json")
     # Never overwrite another installation or user-managed native manifest.
     if manifest.exists() or host_dir.exists():
         raise ValueError("Installation already exists. Uninstall it before installing again.")
+    data_dir = data_dir or current_platform().data_location(Path.home())
+    data_dir = data_dir.absolute()
     host_dir.mkdir(parents=True, mode=0o700)
     manifest_created = False
     try:
         source = Path(__file__).parent
         package = source / "flux_companion"
-        runtime_files = [Path("host.py"), *(file.relative_to(source) for file in sorted(package.rglob("*.py")))]
+        runtime_files = [Path("host.py"), Path("configure.py"),
+                         *(file.relative_to(source) for file in sorted(package.rglob("*.py")))]
         for relative in runtime_files:
             target = host_dir / relative
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -39,7 +42,7 @@ def install(extension_id, host_dir, manifest_dir):
         (host_dir / "manifest.json").write_text(json.dumps(config, indent=2) + "\n")
         launcher = "#!/bin/sh\nexec " + " ".join(shlex.quote(str(p)) for p in [
             Path(sys.executable).absolute(), "-I", "-u", "-B", host_dir / "host.py", "--config",
-            host_dir / "manifest.json"]) + ' "$@"\n'
+            host_dir / "manifest.json", "--data-dir", data_dir]) + ' "$@"\n'
         (host_dir / "launch").write_text(launcher)
         for child in host_dir.iterdir():
             child.chmod(0o700 if child.name == "launch" or child.is_dir() else 0o600)
@@ -70,7 +73,8 @@ def uninstall(host_dir, manifest_dir):
     receipt = json.loads(receipt_file.read_text()) if receipt_file.exists() else ["host.py"]
     if not isinstance(receipt, list) or not receipt or any(
         not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts
-        or (name != "host.py" and not (name.startswith("flux_companion/") and name.endswith(".py")))
+        or (name not in {"host.py", "configure.py"}
+            and not (name.startswith("flux_companion/") and name.endswith(".py")))
         for name in receipt
     ):
         raise ValueError("Invalid installation receipt; nothing was removed.")
@@ -96,6 +100,7 @@ def main():
     parser.add_argument("--extension-id")
     parser.add_argument("--host-dir", type=Path)
     parser.add_argument("--manifest-dir", type=Path)
+    parser.add_argument("--data-dir", type=Path, help="Local destination data directory; install only")
     args = parser.parse_args()
     try:
         locations = current_platform().install_locations(Path.home())
@@ -106,7 +111,7 @@ def main():
         host_dir = (args.host_dir or locations.host).resolve()
         manifest_dir = (args.manifest_dir or locations.manifests).resolve()
         if args.action == "install":
-            install(args.extension_id or "", host_dir, manifest_dir)
+            install(args.extension_id or "", host_dir, manifest_dir, args.data_dir)
         else:
             uninstall(host_dir, manifest_dir)
     except (OSError, ValueError) as exc:

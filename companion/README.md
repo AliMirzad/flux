@@ -1,6 +1,6 @@
 # macOS development companion
 
-The development preview provides connection diagnostics and single-item media inspection with bounded format selection. It does not save media, install media dependencies, or change proxy settings. The packaged end-user installer belongs to milestone 8.
+The development preview provides connection diagnostics, single-item media inspection with bounded format selection, and locally approved save-folder handles. It does not save media, install media dependencies, or change proxy settings. The packaged end-user installer belongs to milestone 8.
 
 ## Install and check
 
@@ -38,6 +38,30 @@ One inspection or retained review owns the companion across Flux tabs. **Cancel 
 
 The preview supports direct HTTP(S) connections only. Proxy profile parameters are rejected. Ambient proxies, browser cookies, external JavaScript runtimes, impersonation transports, downloaded components and ambient plugins are disabled. Responses must honor identity encoding, and inspection has time/connection/body limits. These restrictions reduce website coverage. Playlists with multiple items are rejected; a single-item HTML playlist wrapper is accepted. See [milestone 3 verification](../docs/verification-companion-03.md) for evidence and limits.
 
+## Approve save folders locally
+
+Milestone 4 now has its destination configuration boundary. Downloads and a destination picker in Settings remain disabled until execution, processing and output verification are implemented. Approving a folder alone does not start a job or create media files.
+
+Run the local command with the companion's Python runtime:
+
+```sh
+python3 companion/configure.py approve "$HOME/Downloads" --label "Downloads"
+python3 companion/configure.py list
+python3 companion/configure.py revoke DESTINATION_ID
+```
+
+The installer also copies `configure.py` into the host directory. That copy supports isolated invocation using the installing interpreter:
+
+```sh
+python3 -I -B "$HOME/Library/Application Support/Flux/Media Companion/configure.py" list
+```
+
+Approval requires an existing folder and a display label. It stores the canonical path and filesystem identity locally in `~/Library/Application Support/Flux/Media Companion Data/destinations.sqlite3`. The directory is owner-only and the database is private to the same OS account. This protects against other users; it does not isolate the companion from software running as you. Folder writability and safe file creation must also be checked when a download starts.
+
+Chrome can request `destinations.list`, which returns at most 50 opaque IDs and labels. Native messages cannot approve/revoke folders or supply paths. A moved, deleted or replaced folder becomes unavailable; approving its replacement creates a new handle. Approving the same folder again updates its label without consuming another slot. Symlinks supplied during local approval are resolved once; retargeting that alias does not redirect the saved approval.
+
+Revocation removes the approval and preserves files in the folder. Host uninstall preserves approvals in the separate data directory. To erase approvals as well, remove that data directory locally after uninstalling. `--data-dir` on the installer and configuration command supports isolated development data; use the same directory with both commands. It is a local installation option, never an extension message parameter.
+
 ## Troubleshooting and removal
 
 - If permission is declined, run the check again to grant access.
@@ -60,7 +84,7 @@ npm test -- tests/unit/companion.test.ts
 npm run build
 ```
 
-Python tests cover real framed subprocess communication and an isolated install/uninstall, without modifying your Chrome registration. TypeScript tests cover diagnostics parsing, protocol mismatch, disconnect, timeout and cancellation.
+Python tests cover real framed subprocess communication, local destination approvals and an isolated install/uninstall, without modifying your Chrome registration. TypeScript tests cover diagnostics parsing, protocol mismatch, disconnect, timeout and cancellation.
 
 For an actual Chrome acceptance check after building:
 

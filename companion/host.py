@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from flux_companion.platforms import current_platform
 from flux_companion.inspection import InspectionController, InspectionFailure, WorkerInspector
 from flux_companion.media import validate_source
+from flux_companion.destinations import DestinationError, DestinationRegistry
 
 HOST_NAME = "com.flux.media_companion"
 VERSION = "0.1.0"
@@ -82,12 +83,15 @@ def diagnostics(adapter):
 
 
 class Session:
-    def __init__(self, adapter=None, inspector=None):
+    def __init__(self, adapter=None, inspector=None, destinations=None):
         self.adapter = adapter if adapter is not None else current_platform()
         self.inspections = InspectionController(inspector or WorkerInspector(self.adapter)) if (
             inspector is not None or self.adapter.name == "darwin") else None
         self.negotiated = False
         self.info = None
+        self.destinations = destinations
+        if self.destinations is None and self.adapter.name == "darwin":
+            self.destinations = DestinationRegistry(self.adapter.data_location(Path.home()), self.adapter)
 
     def dispatch(self, request):
         if not isinstance(request, dict):
@@ -108,6 +112,14 @@ class Session:
             self.negotiated = True
         elif not self.negotiated:
             return error(request_id, "INVALID_REQUEST", "Send hello before other commands.")
+        elif method == "destinations.list" and self.destinations is not None:
+            if params:
+                return error(request_id, "INVALID_REQUEST", "Destination listing takes no parameters.")
+            try:
+                result = self.destinations.list()
+            except DestinationError:
+                return error(request_id, "DESTINATION_UNAVAILABLE", "Check locally approved companion folders.")
+            return {"protocol": 1, "kind": "response", "id": request_id, "result": result}
         elif method == "inspect" and self.inspections:
             if "proxyProfileId" in params:
                 return error(request_id, "UNSUPPORTED_CAPABILITY", "Proxy profiles are not available yet.")
@@ -132,6 +144,8 @@ class Session:
             self.info = diagnostics(self.adapter)
             if self.inspections:
                 self.info["capabilities"] += ["inspect", "inspect.cancel"]
+            if self.destinations is not None:
+                self.info["capabilities"].append("destinations.list")
         return {"protocol": 1, "kind": "response", "id": request_id, "result": self.info}
 
     def poll(self):
@@ -164,13 +178,16 @@ def authorized(config_path, origin):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("origin")
     args = parser.parse_args()
     try:
         if not authorized(args.config, args.origin):
             print("Flux companion: extension origin is not authorized.", file=sys.stderr)
             return 1
-        session = Session()
+        adapter = current_platform()
+        directory = args.data_dir or adapter.data_location(Path.home())
+        session = Session(adapter, destinations=DestinationRegistry(directory, adapter))
         incoming = queue.Queue(maxsize=8)
         stdin = io.FileIO(sys.stdin.fileno(), mode="rb", closefd=False)
         def read():

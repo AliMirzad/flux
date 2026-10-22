@@ -26,7 +26,7 @@ Every envelope has `protocol: 1`, `kind: request | response | event` and a bound
   "result": {
     "companionVersion": "0.1.0",
     "protocol": 1,
-    "capabilities": ["diagnostics", "inspect", "inspect.cancel"],
+    "capabilities": ["diagnostics", "inspect", "inspect.cancel", "destinations.list"],
     "platform": "darwin",
     "dependencies": {
       "ytDlp": { "available": false, "status": "missing" },
@@ -61,6 +61,8 @@ The inspection preview returns `title`, nullable `duration`, `reviewId`, UTC epo
 The host persists canonical create parameters and `jobId` atomically before acknowledging admission. Reusing a job ID with identical parameters returns the existing job; different parameters return `CONFLICT`. Retain tombstones if deletion is later supported so delayed retries cannot recreate deleted jobs. Request IDs correlate replies; they are not durable idempotency keys. Retry/control commands use revisions to reject stale mutations.
 
 Native destination configuration and proxy-profile editing are not remotely executable protocol operations in v1. Until the corresponding capabilities exist, disable those controls in Flux and return `UNSUPPORTED_CAPABILITY` rather than silently ignoring parameters. Download/conversion are disabled when required dependencies are missing.
+
+The development host now implements `destinations.list` after negotiation, with exactly empty parameters. The result is an array of `{ "id": "opaque-uuid", "label": "Downloads" }` entries. It omits unavailable approvals, never returns local paths and rejects extra parameters with `INVALID_REQUEST`. Local storage failures return a redacted `DESTINATION_UNAVAILABLE`. There are no native `destinations.approve` or `destinations.revoke` methods. A separately invoked local configuration command manages these approvals. Job capabilities remain unavailable.
 
 ## Job snapshots and events
 

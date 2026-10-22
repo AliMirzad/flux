@@ -90,7 +90,7 @@ class HostTests(unittest.TestCase):
             self.assertEqual(good.returncode, 0, good.stderr)
             stream = io.BytesIO(good.stdout)
             result = host.read_message(stream)["result"]
-            self.assertEqual(result["capabilities"], ["diagnostics", "inspect", "inspect.cancel"])
+            self.assertEqual(result["capabilities"], ["diagnostics", "inspect", "inspect.cancel", "destinations.list"])
             self.assertEqual(set(result["dependencies"]), {"ytDlp", "ffmpeg", "ffprobe"})
             self.assertEqual(host.read_message(stream)["error"]["code"], "UNSUPPORTED_CAPABILITY")
             self.assertIsNone(host.read_message(stream))
