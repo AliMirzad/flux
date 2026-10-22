@@ -35,7 +35,7 @@ def install(extension_id, host_dir, manifest_dir, data_dir=None):
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             shutil.copyfile(source / relative, target)
             target.chmod(0o600)
-        (host_dir / "files.json").write_text(json.dumps([str(path) for path in runtime_files]))
+        (host_dir / "files.json").write_text(json.dumps([*[str(path) for path in runtime_files], "configure"]))
         config = {"name": HOST_NAME, "description": "Flux media companion development host",
                   "path": str(host_dir / "launch"), "type": "stdio",
                   "allowed_origins": [f"chrome-extension://{extension_id}/"]}
@@ -44,8 +44,12 @@ def install(extension_id, host_dir, manifest_dir, data_dir=None):
             Path(sys.executable).absolute(), "-I", "-u", "-B", host_dir / "host.py", "--config",
             host_dir / "manifest.json", "--data-dir", data_dir]) + ' "$@"\n'
         (host_dir / "launch").write_text(launcher)
+        configure = "#!/bin/sh\nexec " + " ".join(shlex.quote(str(p)) for p in [
+            Path(sys.executable).absolute(), "-I", "-B", host_dir / "configure.py",
+            "--data-dir", data_dir]) + ' "$@"\n'
+        (host_dir / "configure").write_text(configure)
         for child in host_dir.iterdir():
-            child.chmod(0o700 if child.name == "launch" or child.is_dir() else 0o600)
+            child.chmod(0o700 if child.name in {"launch", "configure"} or child.is_dir() else 0o600)
         manifest_dir.mkdir(parents=True, exist_ok=True)
         with manifest.open("x") as stream:
             manifest_created = True
@@ -73,7 +77,7 @@ def uninstall(host_dir, manifest_dir):
     receipt = json.loads(receipt_file.read_text()) if receipt_file.exists() else ["host.py"]
     if not isinstance(receipt, list) or not receipt or any(
         not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts
-        or (name not in {"host.py", "configure.py"}
+        or (name not in {"host.py", "configure.py", "configure"}
             and not (name.startswith("flux_companion/") and name.endswith(".py")))
         for name in receipt
     ):

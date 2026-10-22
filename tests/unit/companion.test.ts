@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   inspectCompanion,
+  listCompanionDestinations,
+  parseDestinations,
   parseDiagnostics,
   parseReview,
   probeCompanion,
@@ -52,6 +54,88 @@ function fakeRuntime() {
 }
 
 afterEach(() => vi.useRealTimers());
+describe('companion destination boundary', () => {
+  it('lists approved handles after capability negotiation, projects fields and closes its port', async () => {
+    const fake = fakeRuntime();
+    const promise = listCompanionDestinations(fake.runtime, new AbortController().signal);
+    inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'destinations.list'] });
+    expect(fake.port.postMessage.mock.calls.at(-1)![0]).toMatchObject({
+      method: 'destinations.list',
+      params: {},
+    });
+    inspectReply(fake, [{ id: 'opaque-folder', label: 'Videos', path: '/private/not-for-chrome' }]);
+    expect(await promise).toEqual([{ id: 'opaque-folder', label: 'Videos' }]);
+    expect(fake.port.disconnect).toHaveBeenCalledOnce();
+    expect(fake.messages.size + fake.disconnects.size).toBe(0);
+  });
+  it('keeps older companion versions usable and explains the folder capability upgrade', async () => {
+    const fake = fakeRuntime();
+    const promise = listCompanionDestinations(fake.runtime, new AbortController().signal);
+    inspectReply(fake, diagnostics());
+    await expect(promise).rejects.toThrow('Reinstall');
+    expect(fake.port.postMessage).toHaveBeenCalledOnce();
+  });
+  it('accepts empty listings and rejects duplicates, oversized and malformed handles', () => {
+    expect(parseDestinations([])).toEqual([]);
+    for (const value of [
+      {},
+      [{ id: '', label: 'Videos' }],
+      [{ id: 'folder', label: '' }],
+      [{ id: 'folder', label: 'a'.repeat(129) }],
+      [
+        { id: 'folder', label: 'A' },
+        { id: 'folder', label: 'B' },
+      ],
+      Array.from({ length: 51 }, (_, index) => ({ id: String(index), label: 'Folder' })),
+    ])
+      expect(() => parseDestinations(value)).toThrow('invalid save folders');
+  });
+  it('redacts local storage errors and rejects responses for another request', async () => {
+    for (const wrongId of [true, false]) {
+      const fake = fakeRuntime();
+      const promise = listCompanionDestinations(fake.runtime, new AbortController().signal);
+      inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'destinations.list'] });
+      const request = fake.port.postMessage.mock.calls.at(-1)![0];
+      for (const fn of [...fake.messages])
+        fn({
+          protocol: 1,
+          kind: 'response',
+          id: wrongId ? 'wrong-id' : request.id,
+          error: { message: '/private/secret/database' },
+        });
+      await expect(promise).rejects.toThrow(
+        wrongId ? 'invalid folder response' : 'Could not read approved folders',
+      );
+      expect(fake.port.disconnect).toHaveBeenCalledOnce();
+    }
+  });
+  it('cancels and times out without leaving a connection behind', async () => {
+    vi.useFakeTimers();
+    for (const canceled of [true, false]) {
+      const fake = fakeRuntime();
+      const controller = new AbortController();
+      const promise = listCompanionDestinations(fake.runtime, controller.signal);
+      const rejected = expect(promise).rejects.toThrow(canceled ? 'canceled' : 'timed out');
+      if (canceled) controller.abort();
+      else await vi.advanceTimersByTimeAsync(10000);
+      await rejected;
+      expect(fake.port.disconnect).toHaveBeenCalledOnce();
+      expect(fake.messages.size + fake.disconnects.size).toBe(0);
+    }
+  });
+  it('handles native disconnect and already-canceled operations', async () => {
+    const fake = fakeRuntime();
+    const controller = new AbortController();
+    const promise = listCompanionDestinations(fake.runtime, controller.signal);
+    for (const fn of [...fake.disconnects]) fn();
+    await expect(promise).rejects.toThrow('Could not connect');
+    controller.abort();
+    await expect(listCompanionDestinations(fake.runtime, controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(fake.runtime.connectNative).toHaveBeenCalledOnce();
+  });
+});
 describe('companion diagnostics boundary', () => {
   it('negotiates hello, validates diagnostics, and releases its port and listeners', async () => {
     const fake = fakeRuntime();

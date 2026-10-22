@@ -225,6 +225,26 @@ class DestinationTests(unittest.TestCase):
         self.assertTrue(self.folder.is_dir())
         self.assertFalse((installed / "configure.py").exists())
 
+    def test_installed_configuration_launcher_keeps_the_selected_data_directory(self):
+        installed, manifests = self.root / "host", self.root / "manifests"
+        install.install("a" * 32, installed, manifests, self.data)
+        result = subprocess.run([str(installed / "configure"), "approve", str(self.folder), "--label", "Videos"],
+                                capture_output=True, timeout=5, check=True)
+        self.assertEqual(self.registry.list(), [json.loads(result.stdout)])
+        self.assertEqual((installed / "configure").stat().st_mode & 0o777, 0o700)
+        install.uninstall(installed, manifests)
+        self.assertFalse((installed / "configure").exists())
+        self.assertTrue(self.registry.database.exists())
+
+    def test_legacy_receipt_preserves_an_unowned_configuration_file(self):
+        installed, manifests = self.root / "host", self.root / "manifests"
+        install.install("a" * 32, installed, manifests, self.data)
+        receipt = installed / "files.json"
+        receipt.write_text(json.dumps([name for name in json.loads(receipt.read_text()) if name != "configure"]))
+        (installed / "configure").write_text("unrelated user file")
+        install.uninstall(installed, manifests)
+        self.assertEqual((installed / "configure").read_text(), "unrelated user file")
+
 
 if __name__ == "__main__":
     unittest.main()

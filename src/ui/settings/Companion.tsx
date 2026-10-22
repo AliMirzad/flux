@@ -5,6 +5,8 @@ export function Companion() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<CompanionDiagnostics | null>(null);
+  const [copyStatus, setCopyStatus] = useState('');
+  const extensionId = globalThis.chrome?.runtime?.id;
   const active = useRef<AbortController | null>(null);
   useEffect(() => () => active.current?.abort(), []);
   async function check() {
@@ -40,24 +42,63 @@ export function Companion() {
     }
   }
   return (
-    <section className="storage-settings panel">
+    <section className="storage-settings panel companion-setup" aria-label="Media companion setup">
       <div>
         <h3>Media companion</h3>
         <p>
-          Optional macOS development preview. Check the connection and installed media tools. Media
-          downloads will be added in a later milestone.
-        </p>
-        <p className="small muted">
-          <a
-            href="https://github.com/k4vrin/flux/blob/feature/media-companion/companion/README.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Development installation instructions
-          </a>
-          . Your extension ID: <code>{globalThis.chrome?.runtime?.id ?? 'not installed'}</code>
+          Install the optional companion to inspect media and prepare save folders. Ordinary Flux
+          downloads work without it. This macOS preview does not save media yet.
         </p>
       </div>
+      <ol className="companion-steps">
+        <li>
+          <strong>Copy your extension ID</strong>
+          <div className="companion-id">
+            <code>{extensionId ?? 'Open the installed Flux extension first'}</code>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={!extensionId}
+              onClick={() => {
+                void navigator.clipboard.writeText(extensionId!).then(
+                  () => setCopyStatus('Extension ID copied.'),
+                  () => setCopyStatus('Could not copy. Select and copy the ID shown above.'),
+                );
+              }}
+            >
+              Copy extension ID
+            </button>
+          </div>
+          {copyStatus && <p role="status">{copyStatus}</p>}
+        </li>
+        <li>
+          <strong>Install on your Mac</strong>
+          <p>
+            Download and unzip the installer, then open <code>Install.command</code>. Paste your
+            extension ID when asked. Requires an installed Python 3.10+ and internet access to
+            download yt-dlp. The installer asks before replacing an existing companion.
+          </p>
+          <a
+            className="button secondary"
+            href="companion/flux-media-companion-macos.zip"
+            download="flux-media-companion-macos.zip"
+          >
+            Download macOS installer
+          </a>
+          <p className="small muted">
+            Chrome cannot run the installer for you. This development installer is unsigned; if
+            macOS prevents it from opening, review the file and use System Settings → Privacy &amp;
+            Security to allow it. Windows setup is not available yet.
+          </p>
+        </li>
+        <li>
+          <strong>Check the connection</strong>
+          <p>
+            Return here after setup and grant companion access when Chrome asks. Keep this extension
+            folder in place so its ID stays the same.
+          </p>
+        </li>
+      </ol>
       <button
         type="button"
         className="button secondary"
@@ -91,6 +132,10 @@ export function Companion() {
               </li>
             ))}
           </ul>
+          <p className="small muted">
+            Inspection uses yt-dlp installed in the companion's Python runtime. FFmpeg and ffprobe
+            are required for the upcoming download and conversion flow.
+          </p>
         </div>
       )}
     </section>

@@ -21,6 +21,109 @@ const record = (value: unknown): value is Record<string, unknown> =>
 const shortString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 128;
 
+export interface CompanionDestination {
+  id: string;
+  label: string;
+}
+
+export function parseDestinations(value: unknown): CompanionDestination[] {
+  if (!Array.isArray(value) || value.length > 50)
+    throw new Error('The companion returned invalid save folders.');
+  const ids = new Set<string>();
+  return value.map((item: unknown) => {
+    if (!record(item) || !shortString(item.id) || !shortString(item.label) || ids.has(item.id))
+      throw new Error('The companion returned invalid save folders.');
+    ids.add(item.id);
+    return { id: item.id, label: item.label };
+  });
+}
+
+export function listCompanionDestinations(
+  runtime: Parameters<typeof probeCompanion>[0],
+  signal: AbortSignal,
+): Promise<CompanionDestination[]> {
+  if (signal.aborted)
+    return Promise.reject(new DOMException('Folder check canceled.', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    let port: chrome.runtime.Port;
+    try {
+      port = runtime.connectNative(companionHost);
+    } catch {
+      reject(new Error('Install the companion, then refresh save folders.'));
+      return;
+    }
+    let stage: 'hello' | 'list' = 'hello';
+    let id = crypto.randomUUID();
+    let finished = false;
+    const finish = (error?: Error, result?: CompanionDestination[]) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      port.onMessage.removeListener(message);
+      port.onDisconnect.removeListener(disconnected);
+      port.disconnect();
+      if (error) reject(error);
+      else resolve(result!);
+    };
+    const abort = () => finish(new DOMException('Folder check canceled.', 'AbortError'));
+    const disconnected = () => {
+      void runtime.lastError;
+      finish(new Error('Could not connect. Install the companion and check its connection first.'));
+    };
+    const message = (value: unknown) => {
+      try {
+        if (
+          new TextEncoder().encode(JSON.stringify(value)).length > maxFrame ||
+          !record(value) ||
+          value.protocol !== 1 ||
+          value.kind !== 'response' ||
+          value.id !== id ||
+          'result' in value === 'error' in value
+        )
+          throw new Error('The companion returned an invalid folder response.');
+        if ('error' in value)
+          throw new Error(
+            'Could not read approved folders. Check the local companion configuration.',
+          );
+        if (stage === 'hello') {
+          if (!parseDiagnostics(value.result).capabilities.includes('destinations.list'))
+            throw new Error('Reinstall the companion to enable approved save folders.');
+          stage = 'list';
+          id = crypto.randomUUID();
+          port.postMessage({
+            protocol: 1,
+            kind: 'request',
+            id,
+            method: 'destinations.list',
+            params: {},
+          });
+        } else finish(undefined, parseDestinations(value.result));
+      } catch (cause) {
+        finish(cause instanceof Error ? cause : new Error('Invalid folder response.'));
+      }
+    };
+    const timer = setTimeout(
+      () => finish(new Error('Save folder check timed out. Try again.')),
+      10000,
+    );
+    signal.addEventListener('abort', abort, { once: true });
+    port.onMessage.addListener(message);
+    port.onDisconnect.addListener(disconnected);
+    try {
+      port.postMessage({
+        protocol: 1,
+        kind: 'request',
+        id,
+        method: 'hello',
+        params: { extensionVersion: runtime.getManifest().version },
+      });
+    } catch {
+      finish(new Error('Could not request approved save folders.'));
+    }
+  });
+}
+
 export function parseDiagnostics(value: unknown): CompanionDiagnostics {
   if (!record(value) || value.protocol !== 1)
     throw new Error('Install compatible Flux and companion versions.');

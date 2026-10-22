@@ -58,9 +58,16 @@ for (const file of [
   manifest.action.default_popup,
   'manager.html',
   'THIRD_PARTY_NOTICES.txt',
+  'companion/flux-media-companion-macos.zip',
+  'companion/flux-media-folder-setup-macos.zip',
   ...Object.values(manifest.icons),
 ])
   await stat(join(root, file));
+for (const name of ['flux-media-companion-macos.zip', 'flux-media-folder-setup-macos.zip']) {
+  const archive = await readFile(join(root, 'companion', name));
+  if (archive.readUInt32LE(0) !== 0x04034b50 || archive.length > 1024 * 1024)
+    fail('Invalid or oversized companion setup archive.');
+}
 for (const icon of Object.values(manifest.icons)) {
   const png = await readFile(join(root, icon));
   if (png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') fail('Invalid PNG icon.');

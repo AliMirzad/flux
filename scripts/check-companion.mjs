@@ -13,7 +13,7 @@ const manifestDir = join(root, 'profile', 'NativeMessagingHosts');
 const dataDir = join(root, 'private data');
 const saveDir = join(root, "Approved media's folder");
 const python = process.env.PYTHON_PATH ?? 'python3';
-const installer = resolve('companion/install.py');
+let installer;
 let context;
 let page;
 let registered = false;
@@ -36,6 +36,44 @@ try {
   const session = await context.browser().newBrowserCDPSession();
   const { id } = await session.send('Extensions.loadUnpacked', { path: extension });
   await session.detach();
+  page = await context.newPage();
+  page.setDefaultTimeout(15000);
+  await page.goto(`chrome-extension://${id}/manager.html`);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Copy extension ID', exact: true }).click();
+  await page.getByText('Extension ID copied.', { exact: true }).waitFor();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('link', { name: 'Download macOS installer', exact: true }).click(),
+  ]);
+  const archive = join(root, 'installer.zip');
+  await download.saveAs(archive);
+  execFileSync(
+    python,
+    [
+      '-I',
+      '-c',
+      `
+import pathlib, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    assert archive.testzip() is None
+    for name in ('Install.command', 'Choose save folder.command'):
+        assert archive.getinfo('Flux Media Companion/' + name).external_attr >> 16 & 0o111
+    archive.extractall(sys.argv[2])
+`,
+      archive,
+      join(root, 'extracted'),
+    ],
+    { stdio: 'pipe' },
+  );
+  installer = join(root, 'extracted', 'Flux Media Companion', 'install.py');
+  console.log(
+    'PASS: Settings copies the extension ID and downloads a valid executable macOS installer archive.',
+  );
+  if (process.env.COMPANION_SETUP_SCREENSHOT)
+    await page
+      .getByRole('region', { name: 'Media companion setup', exact: true })
+      .screenshot({ path: process.env.COMPANION_SETUP_SCREENSHOT });
   execFileSync(
     python,
     [
@@ -53,10 +91,6 @@ try {
     { stdio: 'pipe' },
   );
   registered = true;
-  page = await context.newPage();
-  page.setDefaultTimeout(15000);
-  await page.goto(`chrome-extension://${id}/manager.html`);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Check companion connection', exact: true }).click();
   await page
     .getByText('Connected to companion 0.1.0 on darwin. Media inspection available.', {
@@ -74,6 +108,14 @@ try {
       ),
     );
   const approved = configure(['approve', saveDir, '--label', 'Test videos']);
+  await page.getByRole('button', { name: 'Refresh save folders', exact: true }).click();
+  await page
+    .getByRole('option', { name: 'Test videos', exact: true })
+    .waitFor({ state: 'attached' });
+  if (
+    (await page.getByLabel('Companion save folder', { exact: true }).inputValue()) !== approved.id
+  )
+    throw new Error('UI did not select the approved destination handle.');
   const listDestinations = () =>
     page.evaluate(
       () =>
@@ -134,6 +176,8 @@ try {
   )
     throw new Error('Destination path leaked or approved handle missing.');
   configure(['revoke', approved.id]);
+  await page.getByRole('button', { name: 'Refresh save folders', exact: true }).click();
+  await page.getByText('No approved save folders found.', { exact: false }).waitFor();
   if ((await listDestinations()).length !== 0)
     throw new Error('Revoked destination remained visible in a new native session.');
   console.log(
@@ -146,6 +190,8 @@ try {
       .getByRole('button', { name: 'Inspecting media…', exact: true })
       .waitFor({ timeout: 3000 });
     await page.getByLabel('Available format', { exact: true }).waitFor({ timeout: 95000 });
+    if (!(await page.getByRole('button', { name: 'Download media', exact: true }).isDisabled()))
+      throw new Error('Unimplemented media downloads were enabled.');
     const formats = await page
       .getByLabel('Available format', { exact: true })
       .locator('option')
@@ -156,7 +202,7 @@ try {
     if (process.env.COMPANION_SCREENSHOT)
       await page
         .locator('section')
-        .filter({ has: page.getByRole('heading', { name: 'Inspect media', exact: true }) })
+        .filter({ has: page.getByRole('heading', { name: 'Media downloader', exact: true }) })
         .screenshot({ path: process.env.COMPANION_SCREENSHOT });
     const other = await context.newPage();
     await other.goto(`chrome-extension://${id}/manager.html`);
@@ -194,6 +240,10 @@ try {
   )
     throw new Error('Stale connection diagnostics remained visible.');
   console.log('PASS: missing native host displays actionable failure and clears old diagnostics.');
+  await page.setViewportSize({ width: 480, height: 900 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
+    throw new Error('Companion setup overflows the narrow manager viewport.');
+  console.log('PASS: companion Settings remain within a 480px manager viewport.');
   console.log(`Chrome ${context.browser().version()}; temporary native registration removed.`);
 } catch (error) {
   console.error('Connection UI:', await page?.getByRole('alert').allTextContents());

@@ -4,6 +4,10 @@ The development preview provides connection diagnostics, single-item media inspe
 
 ## Install and check
 
+The extension now includes a macOS development installer. In Flux Settings under **Media companion**, copy your extension ID and choose **Download macOS installer**. Unzip it, open `Install.command`, paste the ID and select an installed Python 3.10+ runtime. Setup creates its own virtual environment and downloads the pinned yt-dlp package after confirmation. Return to Settings to check the connection. `Uninstall.command` is included in the same bundle. The source alternative is below.
+
+The installer is unsigned and still requires Python already installed. It does not package FFmpeg/ffprobe, provide automatic updates or establish milestone 8 distribution acceptance. See the [bundled setup guide](macos/README.md). No Git checkout is needed to use the downloaded bundle.
+
 Prerequisites: macOS, desktop Google Chrome, Python 3.10 or later at a stable absolute path, and Flux built and loaded unpacked from `dist`. Keep the same extension folder to preserve its ID. Python is required only for this source-based development setup; distribution will package its runtime.
 
 1. Build Flux with `npm ci` and `npm run build`, then load/reload `dist` through `chrome://extensions`.
@@ -32,7 +36,7 @@ python3 -m venv "$HOME/Library/Application Support/Flux/Media Runtime"
 
 Uninstall an existing host before reinstalling with a different interpreter. The independently created virtual environment is user-managed and is not removed by host uninstall.
 
-In Flux Settings, enter a public media URL under **Inspect media** and choose **Inspect media**. The result shows the title, available duration and at most 200 format choices. Track metadata may be unknown; those choices say **tracks unverified**. Selecting a format does not download it yet.
+In Flux Settings under **Media downloader**, enter a public media URL and choose **Inspect media**. The result shows the title, available duration and at most 200 format choices. Track metadata may be unknown; those choices say **tracks unverified**. Selecting a format does not download it yet. The disabled **Download media** button explains the remaining preview limitation.
 
 One inspection or retained review owns the companion across Flux tabs. **Cancel inspection**, **Close review**, leaving Settings or closing the manager releases that connection. Reviews expire after ten minutes. An inspection worker stops on cancellation, timeout or parent-pipe closure; the host keeps no resident service or persistent review journal.
 
@@ -40,7 +44,7 @@ The preview supports direct HTTP(S) connections only. Proxy profile parameters a
 
 ## Approve save folders locally
 
-Milestone 4 now has its destination configuration boundary. Downloads and a destination picker in Settings remain disabled until execution, processing and output verification are implemented. Approving a folder alone does not start a job or create media files.
+Milestone 4 now has its destination configuration boundary and an approved-folder selector in Settings. Choose **Download folder setup**, unzip and open `Choose save folder.command`, then pick a folder through macOS. Return to Flux and choose **Refresh save folders**. Close any retained review before refreshing. Selecting a folder alone does not start a job or create media files.
 
 Run the local command with the companion's Python runtime:
 
@@ -54,6 +58,12 @@ The installer also copies `configure.py` into the host directory. That copy supp
 
 ```sh
 python3 -I -B "$HOME/Library/Application Support/Flux/Media Companion/configure.py" list
+```
+
+The installed `configure` launcher uses the installing interpreter and the selected data directory automatically:
+
+```sh
+"$HOME/Library/Application Support/Flux/Media Companion/configure" list
 ```
 
 Approval requires an existing folder and a display label. It stores the canonical path and filesystem identity locally in `~/Library/Application Support/Flux/Media Companion Data/destinations.sqlite3`. The directory is owner-only and the database is private to the same OS account. This protects against other users; it does not isolate the companion from software running as you. Folder writability and safe file creation must also be checked when a download starts.
@@ -97,3 +107,11 @@ Use your installed, supported Python path; the example records the tested runtim
 The installer copies the `flux_companion` package with an owned-file receipt. Uninstall uses that receipt to preserve unrelated files. The isolated launcher also disables bytecode generation so source cleanup does not leave generated package caches.
 
 Protocol and architecture: [v1 contract](../docs/media-companion-protocol.md), [ADR 002](../docs/architecture/002-optional-media-companion.md), [platform and custom-provider contracts](../docs/media-provider-adapters.md).
+
+For the downloaded installer's bootstrap and uninstall acceptance in a disposable home directory:
+
+```sh
+python3 -I -B scripts/check-companion-installer.py
+```
+
+This explicit check downloads dependencies into a temporary runtime. It leaves the normal Chrome registration unchanged. See [UI setup verification](../docs/verification-companion-ui.md).

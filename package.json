@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && vite build && node scripts/build-background.mjs && node scripts/verify-package.mjs",
+    "build": "npm run typecheck && vite build && node scripts/build-background.mjs && node scripts/build-companion.mjs && node scripts/verify-package.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "format:check": "prettier --check src tests scripts public *.ts *.json *.html docs README.md",
     "test": "vitest run",

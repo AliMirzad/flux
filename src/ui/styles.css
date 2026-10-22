@@ -1242,6 +1242,34 @@ label > select {
 .storage-settings .button {
   font-size: 10px;
 }
+.companion-steps {
+  display: grid;
+  gap: 20px;
+  padding-left: 22px;
+  margin: 22px 0;
+}
+.companion-steps li::marker {
+  color: var(--accent);
+  font-weight: 600;
+}
+.companion-steps .button {
+  margin-top: 10px;
+}
+.companion-id {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.companion-id code {
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.media-destinations {
+  border-bottom: 1px solid var(--border);
+  padding: 20px 0;
+  margin-bottom: 20px;
+}
 .media-list {
   padding-bottom: 24px !important;
 }
