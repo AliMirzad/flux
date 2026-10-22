@@ -1,0 +1,2 @@
+# The inspection worker permits only this verified networking/API version.
+yt-dlp==2026.03.17

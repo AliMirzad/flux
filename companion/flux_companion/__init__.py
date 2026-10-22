@@ -1,0 +1,1 @@
+"""Local companion application boundaries."""

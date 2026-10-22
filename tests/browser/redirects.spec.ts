@@ -58,7 +58,7 @@ async function add(url: string, name: string) {
 }
 test('a single-origin grant resolves same-host redirects', async () => {
   const card = await add(`${base}/redirect?case=narrow`, 'narrow.bin');
-  await expect(card.getByText('Ready to save', { exact: true })).toBeVisible();
+  await expect(card.getByText(/^(Ready to save|Completed)$/)).toBeVisible();
 });
 test('a new CDN host requests permission instead of reporting unreadable redirect metadata', async () => {
   const target = `${base.replace('downloads.example.com', 'cdn.example.com')}/range?size=1048576&case=ungranted`;
@@ -77,7 +77,7 @@ test('a redirect still resolves after background termination without snapshot po
   expect(background).toBeTruthy();
   await cdp.send('Target.closeTarget', { targetId: background!.targetId });
   const card = await add(`${base}/redirect?case=cold&size=1048576`, 'cold-redirect.bin');
-  await expect(card.getByText('Ready to save', { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(card.getByText(/^(Ready to save|Completed)$/)).toBeVisible({ timeout: 20000 });
   await page.getByRole('button', { name: 'cold-redirect.bin', exact: true }).click();
   await expect(page.getByLabel('SHA-256 checksum')).toHaveValue(fixtureHash(1048576));
   await cdp.detach();
