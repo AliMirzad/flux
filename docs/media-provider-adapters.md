@@ -1,13 +1,14 @@
 # Companion platform and provider boundaries
 
-The companion has two independent extension points: operating-system services and media providers. macOS is the only installed platform implementation. yt-dlp metadata normalization and custom-provider selection are implemented and tested with injected extraction backends; live inspection remains disabled in the native host until milestone 3.
+The companion has two independent extension points: operating-system services and media providers. macOS is the only installed platform implementation. yt-dlp metadata normalization and custom-provider selection share a media model; the native host now runs single-item inspection through a controlled worker. Downloads remain disabled.
 
 ```mermaid
 flowchart TD
     Chrome[Chrome native messaging] --> Host[Shared host and protocol]
     Host --> Platform[PlatformAdapter]
     Platform --> Mac[MacOSPlatform]
-    Host -. Milestone 3 wiring .-> Service[MediaService]
+    Host --> Worker[Controlled inspection worker]
+    Worker --> Service[MediaService]
     Service --> Custom[Registered custom providers]
     Service --> YtDlp[YtDlpProvider]
     YtDlp --> Backend[ExtractionBackend]
@@ -19,7 +20,7 @@ flowchart TD
 
 `ProbeRunner` separates bounded version probes from discovery. Its pipe reader uses a thread instead of Unix selectors so the shared probing mechanism can also be used with Windows pipes. This runner is only for short version queries, not downloads.
 
-A Windows implementation can supply the same platform contract without changing protocol handling or providers. It will still need an executable launcher, Chrome registry registration, dependency packaging and Windows acceptance. Job process-tree supervision, approved destinations and credential storage will need platform contracts when those features are implemented; the current adapter does not claim those services exist.
+A Windows implementation can supply the same platform contract without changing protocol handling or providers. It will still need an executable launcher, Chrome registry registration, dependency packaging and Windows acceptance. macOS supplies inspection-worker creation and termination. Download process-tree supervision, approved destinations and credential storage remain future work.
 
 ## Media providers
 
@@ -32,11 +33,11 @@ Every provider returns `ProviderInspection` with two parts:
 
 [`YtDlpProvider`](../companion/flux_companion/ytdlp.py) translates yt-dlp metadata into this shared model. It drops extractor URLs and raw dumps, skips DRM formats and limits the result to 200 selections. This is metadata normalization, not a promise that a displayed format can already be downloaded or merged. Inspection currently accepts one item; playlists are rejected.
 
-The provider depends on `ExtractionBackend.extract(url)`, not a platform class or subprocess API. A backend can invoke yt-dlp through a controlled child process or provide fixtures in tests. A production backend has not been enabled: it must enforce request policy, bounded extraction and cancellation first. Both yt-dlp and custom implementations must enforce the same selected route and destination checks on every network path. Initial URL validation alone does not cover DNS, redirects or nested media requests.
+The provider depends on `ExtractionBackend.extract(url)`, not a platform class or subprocess API. The implemented `LibraryBackend` uses pinned yt-dlp inside a separate CPython worker with the stdlib HTTP transport, direct-only routing, socket destination checks, bounded responses and external execution disabled. Initial URL validation alone does not cover DNS, redirects or nested media requests; the worker policy checks actual numeric socket destinations and every urllib request, including redirects. Custom production providers must be registered in the worker's composition, after the same policy is installed. Tests can still inject fixture backends directly.
 
 ## Register a custom adapter
 
-Custom code is packaged with the companion and registered explicitly in [`composition.py`](../companion/flux_companion/composition.py). There is no automatic discovery or downloaded plugin execution. An adapter can use an independent implementation while returning the same media model:
+Custom code is packaged with the companion and constructed explicitly through [`composition.py`](../companion/flux_companion/composition.py). For production, pass the custom tuple at the service construction in `worker.run`, after the audit policy is installed. There is no automatic discovery or downloaded plugin execution. An adapter can use an independent implementation while returning the same media model:
 
 ```python
 from urllib.parse import urlsplit
@@ -69,7 +70,7 @@ review = service.inspect("https://media.example.com/watch/123")
 
 `backend` and `client` are trusted dependencies supplied by the application; the example does not enable arbitrary network clients from extension messages. Registration order is precedence: custom providers are checked first, yt-dlp last. A false `supports` result or `ProviderNotApplicable` permits fallback. Other failures remain failures, avoiding hidden retries through a different provider or route. Duplicate provider IDs and invalid result/plan mappings are rejected.
 
-The current contract covers inspection. Download execution, stale-review expiry, persistent plan ownership and cancellation will extend this boundary during the job milestones. No unused download or Windows implementations are presented as working features.
+The current contract covers inspection. The host retains the source and private plan for the connection's latest review for at most ten minutes. Download execution and persistent plan ownership will extend this boundary during the job milestones. No download or Windows implementation is presented as working.
 
 ## Verification
 

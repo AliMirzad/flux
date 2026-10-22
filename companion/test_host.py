@@ -56,7 +56,7 @@ class HostTests(unittest.TestCase):
         with patch.object(host, "diagnostics", return_value={"capabilities": ["diagnostics"]}):
             self.assertIn("result", session.dispatch(request()))
             self.assertIn("result", session.dispatch(request("diagnostics")))
-        for method in ["inspect", "jobs.create", "exec"]:
+        for method in ["jobs.create", "exec"]:
             self.assertEqual(session.dispatch(request(method))["error"]["code"], "UNSUPPORTED_CAPABILITY")
 
     def test_invalid_envelopes(self):
@@ -85,12 +85,12 @@ class HostTests(unittest.TestCase):
             self.assertNotEqual(denied.returncode, 0)
             self.assertEqual(denied.stdout, b"")
             good = subprocess.run([str(host_dir / "launch"), ORIGIN],
-                                  input=frame(request()) + frame(request("inspect")),
+                                  input=frame(request()) + frame(request("jobs.create")),
                                   capture_output=True, timeout=15)
             self.assertEqual(good.returncode, 0, good.stderr)
             stream = io.BytesIO(good.stdout)
             result = host.read_message(stream)["result"]
-            self.assertEqual(result["capabilities"], ["diagnostics"])
+            self.assertEqual(result["capabilities"], ["diagnostics", "inspect", "inspect.cancel"])
             self.assertEqual(set(result["dependencies"]), {"ytDlp", "ffmpeg", "ffprobe"})
             self.assertEqual(host.read_message(stream)["error"]["code"], "UNSUPPORTED_CAPABILITY")
             self.assertIsNone(host.read_message(stream))

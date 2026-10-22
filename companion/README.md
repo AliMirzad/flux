@@ -1,6 +1,6 @@
 # macOS development companion
 
-Milestone 2 provides connection diagnostics only. It does not inspect URLs, download media, install media dependencies, or change proxy settings. The packaged end-user installer belongs to milestone 8.
+The development preview provides connection diagnostics and single-item media inspection with bounded format selection. It does not save media, install media dependencies, or change proxy settings. The packaged end-user installer belongs to milestone 8.
 
 ## Install and check
 
@@ -16,9 +16,27 @@ python3 companion/install.py install --extension-id YOUR_EXTENSION_ID
 
 4. Open Flux Settings, choose **Check companion connection**, and grant the optional native messaging permission. The result reports the companion version and whether yt-dlp, FFmpeg and ffprobe can be found and probed. Missing media tools do not prevent connection diagnostics.
 
-The installer registers `com.flux.media_companion` only for that extension ID under `~/Library/Application Support/Google/Chrome/NativeMessagingHosts`. Source, launcher and the host's own allowlist are copied into `~/Library/Application Support/Flux/Media Companion`. The launcher uses the installing Python interpreter's resolved absolute path and does not run shell initialization files. Moving/removing Python requires reinstalling the companion. A changed extension ID also requires reinstalling.
+The installer registers `com.flux.media_companion` only for that extension ID under `~/Library/Application Support/Google/Chrome/NativeMessagingHosts`. Source, launcher and the host's own allowlist are copied into `~/Library/Application Support/Flux/Media Companion`. The launcher uses the installing Python interpreter's absolute path, preserving virtual environments, and does not run shell initialization files. Moving/removing Python requires reinstalling the companion. A changed extension ID also requires reinstalling.
 
 No native registration or permission is needed for ordinary Flux downloads. A failed connection check does not change existing jobs. The check opens a temporary port and closes it after diagnostics; there is no resident process or automatic launch at Chrome startup. It does not install anything until you run the installer.
+
+## Enable media inspection
+
+Inspection uses the pinned yt-dlp **Python package in the installing interpreter**, not the separately discovered command-line executable. A CLI version in diagnostics does not prove that the Python package is available. Install the requirements into a dedicated runtime, then use that same runtime for installation:
+
+```sh
+python3 -m venv "$HOME/Library/Application Support/Flux/Media Runtime"
+"$HOME/Library/Application Support/Flux/Media Runtime/bin/python" -m pip install -r companion/requirements.txt
+"$HOME/Library/Application Support/Flux/Media Runtime/bin/python" companion/install.py install --extension-id YOUR_EXTENSION_ID
+```
+
+Uninstall an existing host before reinstalling with a different interpreter. The independently created virtual environment is user-managed and is not removed by host uninstall.
+
+In Flux Settings, enter a public media URL under **Inspect media** and choose **Inspect media**. The result shows the title, available duration and at most 200 format choices. Track metadata may be unknown; those choices say **tracks unverified**. Selecting a format does not download it yet.
+
+One inspection or retained review owns the companion across Flux tabs. **Cancel inspection**, **Close review**, leaving Settings or closing the manager releases that connection. Reviews expire after ten minutes. An inspection worker stops on cancellation, timeout or parent-pipe closure; the host keeps no resident service or persistent review journal.
+
+The preview supports direct HTTP(S) connections only. Proxy profile parameters are rejected. Ambient proxies, browser cookies, external JavaScript runtimes, impersonation transports, downloaded components and ambient plugins are disabled. Responses must honor identity encoding, and inspection has time/connection/body limits. These restrictions reduce website coverage. Playlists with multiple items are rejected; a single-item HTML playlist wrapper is accepted. See [milestone 3 verification](../docs/verification-companion-03.md) for evidence and limits.
 
 ## Troubleshooting and removal
 
@@ -54,4 +72,4 @@ Use your installed, supported Python path; the example records the tested runtim
 
 The installer copies the `flux_companion` package with an owned-file receipt. Uninstall uses that receipt to preserve unrelated files. The isolated launcher also disables bytecode generation so source cleanup does not leave generated package caches.
 
-Protocol and architecture: [v1 contract](../docs/media-companion-protocol.md), [ADR 002](../docs/architecture/002-optional-media-companion.md), [platform and custom-provider contracts](../docs/media-provider-adapters.md). No credentials or website URLs are needed for milestone 2.
+Protocol and architecture: [v1 contract](../docs/media-companion-protocol.md), [ADR 002](../docs/architecture/002-optional-media-companion.md), [platform and custom-provider contracts](../docs/media-provider-adapters.md).

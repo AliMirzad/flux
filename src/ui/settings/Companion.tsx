@@ -22,7 +22,7 @@ export function Companion() {
         throw new Error('Companion access was declined. You can check again when ready.');
       if (controller.signal.aborted) return;
       await navigator.locks.request(
-        'flux-companion-diagnostics',
+        'flux-companion-session',
         { ifAvailable: true },
         async (lock) => {
           if (!lock)
@@ -74,7 +74,10 @@ export function Companion() {
       {result && (
         <div role="status">
           <p>
-            Connected to companion {result.companionVersion} on {result.platform}. Diagnostics only.
+            Connected to companion {result.companionVersion} on {result.platform}.{' '}
+            {result.capabilities.includes('inspect')
+              ? 'Media inspection available.'
+              : 'Diagnostics only.'}
           </p>
           <ul>
             {Object.entries(result.dependencies).map(([name, item]) => (

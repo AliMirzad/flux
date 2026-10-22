@@ -21,8 +21,8 @@ class MediaSelection:
     label: str
     container: str | None
     height: int | None
-    has_video: bool
-    has_audio: bool
+    has_video: bool | None
+    has_audio: bool | None
 
 
 @dataclass(frozen=True)
@@ -102,8 +102,9 @@ def validate_inspection(value: ProviderInspection) -> None:
                     (not isinstance(selection.container, str) or not 1 <= len(selection.container) <= 32))
                 or (selection.height is not None and
                     (type(selection.height) is not int or selection.height <= 0))
-                or type(selection.has_video) is not bool or type(selection.has_audio) is not bool
-                or not (selection.has_video or selection.has_audio)):
+                or (selection.has_video is not None and type(selection.has_video) is not bool)
+                or (selection.has_audio is not None and type(selection.has_audio) is not bool)
+                or (selection.has_video is False and selection.has_audio is False)):
             raise ProviderError("Provider returned invalid media selections")
         ids.add(selection.id)
     if not isinstance(value.plans, Mapping) or set(value.plans) != ids:

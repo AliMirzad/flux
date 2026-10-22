@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseDiagnostics, probeCompanion } from '../../src/application/companion';
+import {
+  inspectCompanion,
+  parseDiagnostics,
+  parseReview,
+  probeCompanion,
+} from '../../src/application/companion';
 
 const diagnostics = () => ({
   companionVersion: '0.1.0',
@@ -104,5 +109,137 @@ describe('companion diagnostics boundary', () => {
       },
     ])
       expect(() => parseDiagnostics({ ...diagnostics(), ...patch })).toThrow();
+  });
+});
+
+const review = () => ({
+  reviewId: 'review',
+  expiresAt: Date.now() + 600000,
+  title: 'Sample',
+  duration: 12.5,
+  truncated: false,
+  formats: [
+    {
+      selectionId: 'opaque',
+      label: '720p without audio',
+      container: 'mp4',
+      height: 720,
+      hasVideo: true,
+      hasAudio: false,
+    },
+  ],
+});
+
+function inspectReply(fake: ReturnType<typeof fakeRuntime>, result: unknown) {
+  const request = fake.port.postMessage.mock.calls.at(-1)![0];
+  for (const fn of [...fake.messages])
+    fn({ protocol: 1, kind: 'response', id: request.id, result });
+}
+
+describe('companion inspection boundary', () => {
+  it('negotiates capability, validates a review, and retains ownership until abort', async () => {
+    const fake = fakeRuntime();
+    const controller = new AbortController();
+    const promise = inspectCompanion(fake.runtime, 'https://example.com/watch', controller.signal);
+    inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'inspect'] });
+    expect(fake.port.postMessage.mock.calls[1]![0]).toMatchObject({
+      method: 'inspect',
+      params: { url: 'https://example.com/watch' },
+    });
+    const value = review();
+    inspectReply(fake, value);
+    expect(await promise).toEqual(value);
+    expect(fake.port.disconnect).not.toHaveBeenCalled();
+    controller.abort();
+    expect(fake.port.disconnect).toHaveBeenCalledOnce();
+    expect(fake.messages.size + fake.disconnects.size).toBe(0);
+  });
+  it('does not send URLs to a diagnostics-only companion', async () => {
+    const fake = fakeRuntime();
+    const promise = inspectCompanion(
+      fake.runtime,
+      'https://example.com/watch',
+      new AbortController().signal,
+    );
+    inspectReply(fake, diagnostics());
+    await expect(promise).rejects.toThrow('supports media inspection');
+    expect(fake.port.postMessage).toHaveBeenCalledOnce();
+  });
+  it('cancels the native port during extraction and removes listeners', async () => {
+    const fake = fakeRuntime();
+    const controller = new AbortController();
+    const promise = inspectCompanion(fake.runtime, 'https://example.com/watch', controller.signal);
+    inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'inspect'] });
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fake.port.disconnect).toHaveBeenCalledOnce();
+    expect(fake.messages.size + fake.disconnects.size).toBe(0);
+  });
+  it('invalidates an already displayed review after disconnect', async () => {
+    const fake = fakeRuntime();
+    const disconnected = vi.fn();
+    const promise = inspectCompanion(
+      fake.runtime,
+      'https://example.com/watch',
+      new AbortController().signal,
+      disconnected,
+    );
+    inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'inspect'] });
+    inspectReply(fake, review());
+    await promise;
+    for (const fn of [...fake.disconnects]) fn();
+    expect(disconnected).toHaveBeenCalledOnce();
+  });
+  it('rejects malformed, oversized and stale reviews and drops extractor internals', () => {
+    const value = review();
+    for (const patch of [
+      { formats: [] },
+      { duration: Infinity },
+      { truncated: 'yes' },
+      { formats: [...value.formats, ...value.formats] },
+      { formats: Array(201).fill(value.formats[0]) },
+      { formats: [{ ...value.formats[0], hasAudio: 'unknown' }] },
+    ])
+      expect(() => parseReview({ ...value, ...patch })).toThrow();
+    expect(parseReview({ ...value, signedUrl: 'private', plans: { secret: 'private' } })).toEqual(
+      value,
+    );
+    const unknown = {
+      ...value,
+      formats: [{ ...value.formats[0]!, hasVideo: null, hasAudio: null }],
+    };
+    expect(parseReview(unknown).formats[0]!.hasAudio).toBeNull();
+  });
+  it('redacts native extractor errors', async () => {
+    const fake = fakeRuntime();
+    const promise = inspectCompanion(
+      fake.runtime,
+      'https://example.com/watch',
+      new AbortController().signal,
+    );
+    inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'inspect'] });
+    const request = fake.port.postMessage.mock.calls[1]![0];
+    for (const fn of [...fake.messages])
+      fn({
+        protocol: 1,
+        kind: 'response',
+        id: request.id,
+        error: { code: 'EXTRACTION_FAILED', message: 'signed secret URL' },
+      });
+    await expect(promise).rejects.toThrow('Could not inspect this media.');
+  });
+  it('enforces the inspection deadline and closes the port', async () => {
+    vi.useFakeTimers();
+    const fake = fakeRuntime();
+    const promise = inspectCompanion(
+      fake.runtime,
+      'https://example.com/watch',
+      new AbortController().signal,
+    );
+    inspectReply(fake, { ...diagnostics(), capabilities: ['diagnostics', 'inspect'] });
+    const rejected = expect(promise).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(90000);
+    await rejected;
+    expect(fake.port.disconnect).toHaveBeenCalledOnce();
   });
 });

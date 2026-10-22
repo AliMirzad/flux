@@ -1,6 +1,6 @@
 # Media companion protocol v1
 
-Status: milestone 1 contract with the milestone 2 hello/diagnostics subset implemented. Inspection and job operations remain disabled. See [ADR 002](architecture/002-optional-media-companion.md).
+Status: hello/diagnostics and milestone 3 single-item inspection are implemented. Job operations remain disabled. See [ADR 002](architecture/002-optional-media-companion.md).
 
 ## Transport and bounds
 
@@ -26,7 +26,7 @@ Every envelope has `protocol: 1`, `kind: request | response | event` and a bound
   "result": {
     "companionVersion": "0.1.0",
     "protocol": 1,
-    "capabilities": ["diagnostics"],
+    "capabilities": ["diagnostics", "inspect", "inspect.cancel"],
     "platform": "darwin",
     "dependencies": {
       "ytDlp": { "available": false, "status": "missing" },
@@ -55,6 +55,8 @@ These are illustrative wire examples, not evidence of installed binaries or supp
 | `jobs.retry`        | `jobId`, `expectedRevision`                                                                                       | New attempt on the same job after compatible state/revision validation; reinspection required if the review/resource changed          |
 
 `inspect` retains source/selection metadata privately for at most ten minutes. Bind the review to the selected route and proxy-profile revision; creating a job with a different route requires a new inspection. Recheck before dispatch; expired reviews require a new inspection. Selection IDs bind actual available format combinations and output capability. A successful inspection is not a download guarantee. Bound URL inputs to 8192 characters, titles/labels to 512 characters and error messages to 1024 characters. Large format sets return a bounded subset with `truncated: true`; do not silently imply it is the full list.
+
+The inspection preview returns `title`, nullable `duration`, `reviewId`, UTC epoch-millisecond `expiresAt`, `truncated` and `formats`. Each format contains an opaque `selectionId`, `label`, nullable `container` and `height`, and `hasVideo`/`hasAudio` values of `true`, `false` or `null` for unknown. Unknown tracks must not imply download/merge eligibility. Milestone 3 lists individual extracted formats; supported combinations/output choices will be defined with job execution. The latest review replaces the previous one and is discarded on disconnect. Flux retains its port and Web Lock while showing the review. All proxy-profile parameters are rejected until proxy support exists. `inspect.cancel` acknowledges `cancelRequested: true`; the original inspection response reports `CANCELED` after its worker stops.
 
 The host persists canonical create parameters and `jobId` atomically before acknowledging admission. Reusing a job ID with identical parameters returns the existing job; different parameters return `CONFLICT`. Retain tombstones if deletion is later supported so delayed retries cannot recreate deleted jobs. Request IDs correlate replies; they are not durable idempotency keys. Retry/control commands use revisions to reject stale mutations.
 

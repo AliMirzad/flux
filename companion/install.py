@@ -38,7 +38,7 @@ def install(extension_id, host_dir, manifest_dir):
                   "allowed_origins": [f"chrome-extension://{extension_id}/"]}
         (host_dir / "manifest.json").write_text(json.dumps(config, indent=2) + "\n")
         launcher = "#!/bin/sh\nexec " + " ".join(shlex.quote(str(p)) for p in [
-            Path(sys.executable).resolve(), "-I", "-u", "-B", host_dir / "host.py", "--config",
+            Path(sys.executable).absolute(), "-I", "-u", "-B", host_dir / "host.py", "--config",
             host_dir / "manifest.json"]) + ' "$@"\n'
         (host_dir / "launch").write_text(launcher)
         for child in host_dir.iterdir():

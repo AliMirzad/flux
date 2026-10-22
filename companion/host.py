@@ -1,16 +1,21 @@
-"""Bounded native messaging diagnostics host. No download commands are enabled."""
+"""Bounded native messaging host for diagnostics and single-item inspection."""
 
 import argparse
+import io
 import json
+import queue
 import re
 import struct
 import sys
+import threading
 from pathlib import Path
 
 # Isolated Python excludes the script directory. Trust only this installed,
 # owner-writable distribution for companion imports, never ambient PYTHONPATH.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from flux_companion.platforms import current_platform
+from flux_companion.inspection import InspectionController, InspectionFailure, WorkerInspector
+from flux_companion.media import validate_source
 
 HOST_NAME = "com.flux.media_companion"
 VERSION = "0.1.0"
@@ -77,9 +82,12 @@ def diagnostics(adapter):
 
 
 class Session:
-    def __init__(self, adapter=None):
+    def __init__(self, adapter=None, inspector=None):
         self.adapter = adapter if adapter is not None else current_platform()
+        self.inspections = InspectionController(inspector or WorkerInspector(self.adapter)) if (
+            inspector is not None or self.adapter.name == "darwin") else None
         self.negotiated = False
+        self.info = None
 
     def dispatch(self, request):
         if not isinstance(request, dict):
@@ -100,9 +108,50 @@ class Session:
             self.negotiated = True
         elif not self.negotiated:
             return error(request_id, "INVALID_REQUEST", "Send hello before other commands.")
+        elif method == "inspect" and self.inspections:
+            if "proxyProfileId" in params:
+                return error(request_id, "UNSUPPORTED_CAPABILITY", "Proxy profiles are not available yet.")
+            try:
+                source = validate_source(params.get("url"))
+            except ValueError:
+                return error(request_id, "INVALID_URL", "Enter a public HTTP(S) media URL without credentials.")
+            try:
+                self.inspections.start(request_id, source)
+            except InspectionFailure as exc:
+                return error(request_id, exc.code, "Another inspection is still running.")
+            return None
+        elif method == "inspect.cancel" and self.inspections:
+            target = params.get("requestId")
+            if not isinstance(target, str) or not 1 <= len(target) <= 128:
+                return error(request_id, "INVALID_REQUEST", "Expected an inspection request ID.")
+            self.inspections.cancel(target)
+            return {"protocol": 1, "kind": "response", "id": request_id, "result": {"cancelRequested": True}}
         elif method != "diagnostics":
-            return error(request_id, "UNSUPPORTED_CAPABILITY", "This companion supports connection diagnostics only.")
-        return {"protocol": 1, "kind": "response", "id": request_id, "result": diagnostics(self.adapter)}
+            return error(request_id, "UNSUPPORTED_CAPABILITY", "This companion does not support that operation.")
+        if self.info is None:
+            self.info = diagnostics(self.adapter)
+            if self.inspections:
+                self.info["capabilities"] += ["inspect", "inspect.cancel"]
+        return {"protocol": 1, "kind": "response", "id": request_id, "result": self.info}
+
+    def poll(self):
+        if not self.inspections:
+            return None
+        self.inspections.expire()
+        value = self.inspections.poll()
+        if value is None:
+            return None
+        request_id, result, code = value
+        if code:
+            messages = {"DEPENDENCY_MISSING": "Install the supported yt-dlp Python package in the companion runtime.",
+                        "CANCELED": "Media inspection canceled.",
+                        "EXTRACTION_FAILED": "Could not inspect this media within the supported inspection policy."}
+            return error(request_id, code, messages.get(code, "Media inspection failed."))
+        return {"protocol": 1, "kind": "response", "id": request_id, "result": result}
+
+    def close(self):
+        if self.inspections:
+            self.inspections.close()
 
 
 def authorized(config_path, origin):
@@ -122,11 +171,38 @@ def main():
             print("Flux companion: extension origin is not authorized.", file=sys.stderr)
             return 1
         session = Session()
-        while True:
-            request = read_message(sys.stdin.buffer)
-            if request is None:
-                return 0
-            write_message(sys.stdout.buffer, session.dispatch(request))
+        incoming = queue.Queue(maxsize=8)
+        stdin = io.FileIO(sys.stdin.fileno(), mode="rb", closefd=False)
+        def read():
+            try:
+                while True:
+                    value = read_message(stdin)
+                    incoming.put(value)
+                    if value is None:
+                        break
+            except Exception:
+                incoming.put(ProtocolError("Input closed"))
+        threading.Thread(target=read, daemon=True).start()
+        idle = object()
+        try:
+            while True:
+                try:
+                    request = incoming.get(timeout=0.05)
+                except queue.Empty:
+                    request = idle
+                if request is None:
+                    return 0
+                if isinstance(request, Exception):
+                    raise request
+                if request is not idle:
+                    response = session.dispatch(request)
+                    if response:
+                        write_message(sys.stdout.buffer, response)
+                response = session.poll()
+                if response:
+                    write_message(sys.stdout.buffer, response)
+        finally:
+            session.close()
     except (ProtocolError, OSError, ValueError, TypeError, BrokenPipeError):
         print("Flux companion: connection rejected or closed.", file=sys.stderr)
         return 1

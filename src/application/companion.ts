@@ -131,3 +131,187 @@ export function probeCompanion(
     }
   });
 }
+
+export interface CompanionReview {
+  reviewId: string;
+  expiresAt: number;
+  title: string;
+  duration: number | null;
+  truncated: boolean;
+  formats: {
+    selectionId: string;
+    label: string;
+    container: string | null;
+    height: number | null;
+    hasVideo: boolean | null;
+    hasAudio: boolean | null;
+  }[];
+}
+
+export function parseReview(value: unknown): CompanionReview {
+  const text = (item: unknown, limit: number): item is string =>
+    typeof item === 'string' && item.length > 0 && item.length <= limit;
+  const positive = (item: unknown): item is number =>
+    typeof item === 'number' && Number.isFinite(item) && item >= 0;
+  if (
+    !record(value) ||
+    !shortString(value.reviewId) ||
+    !positive(value.expiresAt) ||
+    !Number.isSafeInteger(value.expiresAt) ||
+    value.expiresAt > Date.now() + 630000 ||
+    !text(value.title, 512) ||
+    (value.duration !== null && !positive(value.duration)) ||
+    typeof value.truncated !== 'boolean' ||
+    !Array.isArray(value.formats) ||
+    value.formats.length < 1 ||
+    value.formats.length > 200
+  )
+    throw new Error('The companion returned an invalid media review.');
+  const ids = new Set<string>();
+  const formats = value.formats.map((item: unknown) => {
+    if (
+      !record(item) ||
+      !shortString(item.selectionId) ||
+      ids.has(item.selectionId) ||
+      !text(item.label, 512) ||
+      (item.container !== null && !text(item.container, 32)) ||
+      (item.height !== null &&
+        (!positive(item.height) || !Number.isInteger(item.height) || item.height === 0)) ||
+      (item.hasVideo !== null && typeof item.hasVideo !== 'boolean') ||
+      (item.hasAudio !== null && typeof item.hasAudio !== 'boolean') ||
+      (item.hasVideo === false && item.hasAudio === false)
+    )
+      throw new Error('The companion returned invalid media selections.');
+    ids.add(item.selectionId);
+    return {
+      selectionId: item.selectionId,
+      label: item.label,
+      container: item.container as string | null,
+      height: item.height as number | null,
+      hasVideo: item.hasVideo as boolean | null,
+      hasAudio: item.hasAudio as boolean | null,
+    };
+  });
+  return {
+    reviewId: value.reviewId,
+    expiresAt: value.expiresAt,
+    title: value.title,
+    duration: value.duration as number | null,
+    truncated: value.truncated,
+    formats,
+  };
+}
+
+const inspectionErrors: Record<string, string> = {
+  DEPENDENCY_MISSING:
+    'Install yt-dlp 2026.03.17 in the companion’s Python runtime, then reinstall the companion.',
+  INVALID_URL: 'Enter a public HTTP(S) media URL without credentials.',
+  BUSY: 'Another inspection is still running. Try again shortly.',
+  CANCELED: 'Media inspection canceled.',
+  EXTRACTION_FAILED:
+    'Could not inspect this media. This preview does not support every website or extraction method.',
+  UNSUPPORTED_CAPABILITY: 'Install a companion version that supports media inspection.',
+};
+
+// The caller owns the port through this signal, including after review resolves.
+// Keeping it open retains the private native review; abort clears that ownership.
+export function inspectCompanion(
+  runtime: Parameters<typeof probeCompanion>[0],
+  url: string,
+  signal: AbortSignal,
+  disconnectedAfterReview: () => void = () => {},
+): Promise<CompanionReview> {
+  if (signal.aborted) return Promise.reject(new DOMException('Inspection canceled.', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    let port: chrome.runtime.Port;
+    try {
+      port = runtime.connectNative(companionHost);
+    } catch {
+      reject(new Error('Could not connect. Install the companion for this extension ID.'));
+      return;
+    }
+    const helloId = crypto.randomUUID();
+    const inspectId = crypto.randomUUID();
+    let stage: 'hello' | 'inspect' | 'review' | 'closed' = 'hello';
+    let timer: ReturnType<typeof setTimeout>;
+    const close = (error?: Error) => {
+      if (stage === 'closed') return;
+      const resolved = stage === 'review';
+      stage = 'closed';
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      port.onMessage.removeListener(message);
+      port.onDisconnect.removeListener(disconnected);
+      port.disconnect();
+      if (!resolved) reject(error ?? new DOMException('Inspection canceled.', 'AbortError'));
+      else if (error) disconnectedAfterReview();
+    };
+    const abort = () => close();
+    const disconnected = () => {
+      void runtime.lastError;
+      close(new Error('The companion disconnected. Check its installation and try again.'));
+    };
+    const deadline = (ms: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => close(new Error('Media inspection timed out. Try again.')), ms);
+    };
+    const message = (value: unknown) => {
+      try {
+        if (
+          new TextEncoder().encode(JSON.stringify(value)).length > maxFrame ||
+          !record(value) ||
+          value.protocol !== 1 ||
+          value.kind !== 'response' ||
+          value.id !== (stage === 'hello' ? helloId : inspectId) ||
+          'result' in value === 'error' in value
+        )
+          throw new Error('The companion returned an invalid response.');
+        if ('error' in value) {
+          const code =
+            record(value.error) && typeof value.error.code === 'string' ? value.error.code : '';
+          throw new Error(
+            inspectionErrors[code] ?? 'The companion could not complete media inspection.',
+          );
+        }
+        if (stage === 'hello') {
+          const info = parseDiagnostics(value.result);
+          if (!info.capabilities.includes('inspect'))
+            throw new Error(inspectionErrors.UNSUPPORTED_CAPABILITY);
+          stage = 'inspect';
+          deadline(90000);
+          port.postMessage({
+            protocol: 1,
+            kind: 'request',
+            id: inspectId,
+            method: 'inspect',
+            params: { url },
+          });
+        } else if (stage === 'inspect') {
+          const review = parseReview(value.result);
+          if (review.expiresAt <= Date.now())
+            throw new Error('This media review expired. Inspect again.');
+          stage = 'review';
+          clearTimeout(timer);
+          resolve(review);
+        } else throw new Error('Unexpected companion response.');
+      } catch (error) {
+        close(error instanceof Error ? error : new Error('Invalid companion response.'));
+      }
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    port.onMessage.addListener(message);
+    port.onDisconnect.addListener(disconnected);
+    deadline(10000);
+    try {
+      port.postMessage({
+        protocol: 1,
+        kind: 'request',
+        id: helloId,
+        method: 'hello',
+        params: { extensionVersion: runtime.getManifest().version },
+      });
+    } catch {
+      close(new Error('Could not contact the companion.'));
+    }
+  });
+}

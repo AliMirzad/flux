@@ -48,9 +48,9 @@ def normalize(raw: Mapping[str, object]) -> ProviderInspection:
         format_id = item.get("format_id")
         if not isinstance(format_id, str) or not format_id or len(format_id) > 128 or format_id in seen:
             continue
-        video = isinstance(item.get("vcodec"), str) and item["vcodec"] not in {"none", ""}
-        audio = isinstance(item.get("acodec"), str) and item["acodec"] not in {"none", ""}
-        if not (video or audio) or item.get("has_drm"):
+        video = (item["vcodec"] != "none") if item.get("vcodec") else None
+        audio = (item["acodec"] != "none") if item.get("acodec") else None
+        if (video is False and audio is False) or item.get("has_drm"):
             continue
         if len(selections) >= 200:
             truncated = True
@@ -62,8 +62,10 @@ def normalize(raw: Mapping[str, object]) -> ProviderInspection:
             height = None
         ext = item.get("ext")
         container = ext if isinstance(ext, str) and 1 <= len(ext) <= 32 else None
-        label = (f"{height}p" if height else "Video") if video else "Audio"
-        if video and audio:
+        label = (f"{height}p" if height else "Video") if video else "Audio" if audio else "Media"
+        if video is None or audio is None:
+            label += " (tracks unverified)"
+        elif video and audio:
             label += " with audio"
         elif video:
             label += " without audio"

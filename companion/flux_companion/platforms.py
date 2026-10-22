@@ -1,10 +1,13 @@
 """OS services used by the shared host; native installation remains separate."""
 
 import platform
+import os
 import queue
 import re
 import shutil
 import subprocess
+import signal
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +69,10 @@ class PlatformAdapter(Protocol):
 
     def install_locations(self, home: Path) -> InstallLocations: ...
 
+    def start_inspection_worker(self) -> subprocess.Popen: ...
+
+    def stop_inspection_worker(self, child: subprocess.Popen) -> None: ...
+
 
 class MacOSPlatform:
     name = "darwin"
@@ -97,6 +104,25 @@ class MacOSPlatform:
     def install_locations(self, home: Path) -> InstallLocations:
         return InstallLocations(home / "Library/Application Support/Flux/Media Companion",
                                 home / "Library/Application Support/Google/Chrome/NativeMessagingHosts")
+
+    def start_inspection_worker(self):
+        return subprocess.Popen(
+            [sys.executable, "-I", "-u", "-B", str(Path(__file__).with_name("worker.py"))],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            start_new_session=True, env={"PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8"})
+
+    def stop_inspection_worker(self, child):
+        if child.poll() is not None:
+            return
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            # Some development sandboxes permit signaling only the direct
+            # child. Inspection policy forbids that worker from spawning children.
+            child.kill()
+        child.wait(timeout=2)
 
 
 def current_platform(system: str | None = None) -> PlatformAdapter:

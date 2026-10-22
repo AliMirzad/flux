@@ -1,6 +1,6 @@
 # ADR 002: Optional local media companion
 
-Date: 2026-10-22. Status: proposed for review; milestone 1 design and milestone 2 diagnostics implemented. Media job execution remains unimplemented.
+Date: 2026-10-22. Status: proposed for review; architecture, macOS diagnostics and single-item inspection implemented. Media job execution remains unimplemented.
 
 Tracking: [issue #6](https://github.com/AliMirzad/flux/issues/6). See the [roadmap](../media-companion-roadmap.md) and [protocol](../media-companion-protocol.md).
 
@@ -10,7 +10,7 @@ Flux's browser engine is appropriate for public direct downloads and its support
 
 The initial scale is one local OS user, one Chrome profile connection and one running native media job. No remote service, Telegram integration, cloud storage integration or browser-cookie import is included. DRM processing and arbitrary executable commands are excluded. macOS is first; Windows follows after its own installer and runtime acceptance.
 
-This decision relaxes the earlier no-helper constraint only for the optional companion. ADR 001 continues to govern browser-engine jobs. Earlier README and capability-audit claims describe the shipped browser-only runtime; only connection diagnostics currently exist; media execution remains planned.
+This decision relaxes the earlier no-helper constraint only for the optional companion. ADR 001 continues to govern browser-engine jobs. Earlier README and capability-audit claims describe the shipped browser-only runtime; the companion preview provides connection diagnostics and inspection, while media job execution remains planned.
 
 ## Components and ownership
 
@@ -19,7 +19,7 @@ This decision relaxes the earlier no-helper constraint only for the optional com
 3. A Python native messaging host, initially developed as source and later packaged with its runtime, owns extraction, processing, subprocess cleanup and an SQLite job journal. yt-dlp runs in an isolated child process so cancellation does not depend on a cooperative Python thread. FFmpeg children belong to that job's process group.
 4. A platform adapter owns host registration, approved destinations, dependency discovery and process-group termination. Installers do not alter browser or OS proxy settings.
 
-The current extracted platform contract covers dependency discovery/probing and installation locations; macOS registration stays in its installer. Destination and process-tree services remain future work. A separate `MediaProvider` contract normalizes inspection results, with explicit custom-provider precedence and yt-dlp behind an injected extraction backend. See [implemented adapter boundaries](../media-provider-adapters.md) for contracts, registration and remaining execution gates.
+The current extracted platform contract covers dependency discovery/probing, installation locations and inspection-worker creation/termination; macOS registration stays in its installer. Destination and download process-tree services remain future work. A separate `MediaProvider` contract normalizes inspection results, with explicit custom-provider precedence and yt-dlp behind an injected extraction backend. See [implemented adapter boundaries](../media-provider-adapters.md) for contracts, registration and remaining execution gates.
 
 Chrome native messaging carries control and bounded metadata only. Media bytes go directly from the host to the chosen native destination, outside OPFS. Native jobs have a separate namespace and journal; they do not masquerade as browser-engine or Chrome-download records. The companion journal is authoritative; any extension snapshot is a disposable cache.
 
@@ -42,6 +42,8 @@ Cancellation retains partial data by default. Removing history never deletes exp
 Register only explicitly allowed extension origins. Validate the invoking origin in the host as well as the native-host manifest. No HTTP listener, arbitrary CLI arguments, shell execution, executable path selection, environment overrides or automatic cookie access is exposed over the protocol. Invoke fixed tools with structured arguments and ignore ambient yt-dlp configuration/plugins. Allow only HTTP(S) media inputs; reject credentials in URLs, local/private literal addresses and local hostnames.
 
 Native extraction can request additional hosts, manifests and redirects. The browser engine's request policy does not automatically protect this path. Before real URL support ships, enforce public-destination validation on every outbound path, including DNS resolution, redirects and external downloaders; alternatively disable paths that cannot enforce it. DNS rebinding and proxy-side resolution require explicit treatment and acceptance evidence. Milestone 2 diagnostics must not enable unrestricted URL execution as a shortcut.
+
+The inspection preview uses a pinned yt-dlp library in a separate CPython process. It selects the stdlib transport, checks actual numeric socket destinations and urllib requests, bounds response reads, and disables alternate transports, external programs, ambient plugins and proxy profiles. Parent-pipe EOF stops orphaned workers; cancellation terminates the worker. These checks constrain trusted packaged Python code; they are not an OS sandbox for hostile plugins. Production custom providers must run inside that worker under the same policy. Download/FFmpeg networking remains disabled pending its own containment and route evidence.
 
 Restrict the journal, logs and temporary files to the OS user. Redact query strings, tokens, proxy credentials and sensitive extractor errors from UI/logs. No telemetry or remote processing is introduced. Dependency updates are explicit and versioned; do not download executable updates during extraction.
 

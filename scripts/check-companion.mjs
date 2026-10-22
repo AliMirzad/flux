@@ -55,9 +55,49 @@ try {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Check companion connection', exact: true }).click();
   await page
-    .getByText('Connected to companion 0.1.0 on darwin. Diagnostics only.', { exact: true })
+    .getByText('Connected to companion 0.1.0 on darwin. Media inspection available.', {
+      exact: true,
+    })
     .waitFor();
   console.log('PASS: real Chrome manager UI -> native host handshake and dependency diagnostics.');
+  if (process.env.COMPANION_SAMPLE_URL) {
+    await page.getByLabel('Media URL', { exact: true }).fill(process.env.COMPANION_SAMPLE_URL);
+    await page.getByRole('button', { name: 'Inspect media', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Inspecting media…', exact: true })
+      .waitFor({ timeout: 3000 });
+    await page.getByLabel('Available format', { exact: true }).waitFor({ timeout: 95000 });
+    const formats = await page
+      .getByLabel('Available format', { exact: true })
+      .locator('option')
+      .count();
+    if (formats < 1 || formats > 200)
+      throw new Error('Invalid number of displayed media selections.');
+    console.log(`PASS: real inspection displayed ${formats} bounded media selection(s).`);
+    if (process.env.COMPANION_SCREENSHOT)
+      await page
+        .locator('section')
+        .filter({ has: page.getByRole('heading', { name: 'Inspect media', exact: true }) })
+        .screenshot({ path: process.env.COMPANION_SCREENSHOT });
+    const other = await context.newPage();
+    await other.goto(`chrome-extension://${id}/manager.html`);
+    await other.getByRole('button', { name: 'Settings', exact: true }).click();
+    await other.getByRole('button', { name: 'Check companion connection', exact: true }).click();
+    await other.getByRole('alert').filter({ hasText: 'Another Flux tab' }).waitFor();
+    await other.close();
+    console.log('PASS: a displayed review prevents another tab from taking companion ownership.');
+    await page.getByRole('button', { name: 'Close review', exact: true }).click();
+    await page.getByRole('button', { name: 'Inspect media', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel inspection', exact: true }).click();
+    await page.getByRole('button', { name: 'Inspect media', exact: true }).waitFor();
+    if (await page.getByLabel('Available format', { exact: true }).count())
+      throw new Error('Canceled inspection retained a stale review.');
+    console.log('PASS: cancel returns to the inspection form without a stale review.');
+    await page.getByLabel('Media URL', { exact: true }).fill('http://127.0.0.1/video');
+    await page.getByRole('button', { name: 'Inspect media', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'public HTTP(S)' }).waitFor();
+    console.log('PASS: private source URL rejected through the real native connection.');
+  }
   execFileSync(
     python,
     [installer, 'uninstall', '--host-dir', hostDir, '--manifest-dir', manifestDir],
@@ -68,7 +108,9 @@ try {
   await page.getByRole('alert').filter({ hasText: 'Connection failed.' }).waitFor();
   if (
     await page
-      .getByText('Connected to companion 0.1.0 on darwin. Diagnostics only.', { exact: true })
+      .getByText('Connected to companion 0.1.0 on darwin. Media inspection available.', {
+        exact: true,
+      })
       .count()
   )
     throw new Error('Stale connection diagnostics remained visible.');
