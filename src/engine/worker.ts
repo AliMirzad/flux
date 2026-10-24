@@ -12,8 +12,12 @@ import { TrafficBudget, TrafficLimitError } from './speed/budget';
 import { HttpError, retryable } from './network/http';
 import { runHlsDownload } from './media/runner';
 import { reviewHls } from './media/network';
+import { reviewDash } from './media/dash-network';
+import { crawlSite } from './crawl/site';
+import type { MediaNetwork } from './media/network';
 const repository = new Repository();
 const controllers = new Map<string, AbortController>();
+const finishingRecordings = new Set<string>();
 const inspections = new Map<string, AbortController>();
 const hostSlots = new HostSlots();
 const bandwidth = new BandwidthLimiter();
@@ -62,20 +66,33 @@ function networkDecision(
 }
 self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   const message = event.data;
-  if (message.type === 'cancel-hls-review') {
+  if (message.type === 'finish-recording') {
+    finishingRecordings.add(message.id);
+    return;
+  }
+  if (message.type === 'cancel-hls-review' || message.type === 'cancel-crawl') {
     inspections.get(message.requestId)?.abort();
     return;
   }
-  if (message.type === 'inspect-hls') {
+  if (message.type === 'crawl-site') {
     const controller = new AbortController();
     inspections.set(message.requestId, controller);
-    void reviewHls(
+    void crawlSite(
       message.url,
+      message.options,
       {
         signal: controller.signal,
         acquireHost: (host, signal) => hostSlots.acquire(host, signal),
+        checkAllowance: async (signal) => {
+          await budgetReady;
+          await budget.check(signal);
+        },
+        consume: async (bytes, signal) => {
+          await budgetReady;
+          await bandwidth.consume(bytes, signal);
+          await budget.consume(bytes, signal);
+        },
         redirectPolicy: {
-          credentialOrigin: message.useBrowserCookies ? new URL(message.url).origin : undefined,
           resolveRedirect: (from, location, signal) =>
             networkDecision('redirect', from, location, signal),
           prepareRequest: async (url, signal) => {
@@ -83,7 +100,35 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
           },
         },
       },
-      message.audioUrl,
+      (progress) => send({ type: 'crawl-progress', requestId: message.requestId, progress }),
+    )
+      .then(
+        (result) => send({ type: 'crawl-result', requestId: message.requestId, result }),
+        (error) =>
+          send({ type: 'crawl-result', requestId: message.requestId, error: safeError(error) }),
+      )
+      .finally(() => inspections.delete(message.requestId));
+    return;
+  }
+  if (message.type === 'inspect-hls') {
+    const controller = new AbortController();
+    inspections.set(message.requestId, controller);
+    const options: MediaNetwork = {
+      signal: controller.signal,
+      acquireHost: (host, signal) => hostSlots.acquire(host, signal),
+      redirectPolicy: {
+        credentialOrigin: message.useBrowserCookies ? new URL(message.url).origin : undefined,
+        resolveRedirect: (from, location, signal) =>
+          networkDecision('redirect', from, location, signal),
+        prepareRequest: async (url, signal) => {
+          await networkDecision('prepare-request', url, null, signal);
+        },
+      },
+    };
+    void (
+      message.protocol === 'dash'
+        ? reviewDash(message.url, options, message.dash)
+        : reviewHls(message.url, options, message.audioUrl)
     )
       .then(
         (review) => send({ type: 'hls-review', requestId: message.requestId, review }),
@@ -127,13 +172,14 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   controllers.set(job.id, controller);
   void (async () => {
     try {
-      await (job.media?.kind === 'hls' ? runHlsDownload : runDownload)({
+      await (job.media ? runHlsDownload : runDownload)({
         job,
         settings,
         store: new OPFSStore(),
         signal: controller.signal,
         checkpoint: (j) => repository.putJob(j),
         progress: (j) => send({ type: 'progress', job: j }),
+        finishRecording: () => finishingRecordings.has(job.id),
         mediaCheckpoints: {
           load: () => repository.getMediaCheckpoints(job.id),
           save: (job, record) => repository.putMediaCheckpoint(job, record),
@@ -214,6 +260,7 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
       send({ type: controller.signal.aborted || budgetWait ? 'paused' : 'failed', job });
     } finally {
       controllers.delete(job.id);
+      finishingRecordings.delete(job.id);
     }
   })();
 };

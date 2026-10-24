@@ -1,6 +1,6 @@
 {
   "name": "flux-download-manager",
-  "version": "0.10.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,13 +12,16 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "benchmark": "node scripts/benchmark.mjs",
+    "test:capacity": "node scripts/capacity.mjs",
     "release": "npm run build && node scripts/release.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "vendor:media": "node scripts/vendor-media.mjs"
   },
   "dependencies": {
+    "@rgrove/parse-xml": "5.0.0",
     "hash-wasm": "^4.12.0",
     "lucide-react": "^0.468.0",
+    "parse5": "8.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

@@ -1,6 +1,10 @@
 import type { TransportPort, TransportOutput } from './transmux';
 import { abortError, checkAbort } from '../speed/control';
-export function createTransportWorker(signal: AbortSignal): TransportPort {
+export function createTransportWorker(
+  signal: AbortSignal,
+  initialization?: Uint8Array,
+  discontinuity = false,
+): TransportPort {
   checkAbort(signal);
   const worker = new Worker(new URL('./transmux-worker.ts', import.meta.url), { type: 'module' });
   let id = 0,
@@ -57,7 +61,10 @@ export function createTransportWorker(signal: AbortSignal): TransportPort {
         ),
       };
       try {
-        worker.postMessage({ ...message, id: ++id }, transfer);
+        worker.postMessage(
+          { ...message, id: ++id, ...(id === 1 ? { initialization, discontinuity } : {}) },
+          transfer,
+        );
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Converter message failed.'));
       }

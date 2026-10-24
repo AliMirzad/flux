@@ -1,3 +1,15 @@
+# Flux 1.0.0-rc.1 — local release candidate
+
+- Add static multi-period and bounded dynamic DASH recording with video/audio selection, playback, seeking and durable recovery.
+- Add separate MPEG-TS audio, continuous non-keyframe TS after validated initialization, split PAT/PMT assembly and compatible declared HLS discontinuities.
+- Add finite HLS recording with Finish recording and offline retained-content finalization, plus bounded same-site crawling and reviewed batch import.
+- Add compact download rows and locally remembered detail visibility choices. Fix review controls hidden under the Add Download footer and DASH part counters.
+- Add unlimitedStorage for multi-gigabyte OPFS staging after reproducing Chrome quota rejection. Physical disk limits and destination consent still apply.
+- Reuse independent hashing instances across completed/canceled operations to reduce repeated WASM allocation during range/media verification and saving. Keep raw AES key input out of that pool.
+- Record complete large-file restart/export evidence, comparative CPU/memory/throughput measurements, isolated 0.10 upgrade acceptance and a repeatable Windows/macOS workflow. See [v1 acceptance](release-acceptance-v1.md) for actual passes and outstanding manual gates.
+
+No stable public release or store submission is represented by this local candidate. Persian UI remains excluded. Historical releases follow.
+
 # Flux 0.10.0 - separate HLS audio and integration review
 
 - Select a named audio/language rendition for completed fMP4 HLS, combine it with video and preserve the selection through full-browser recovery, repeat copies and version-3 URL lists. Ordinary identity AES-128 is supported on either source. Encoded media samples stay unchanged. Separate TS audio, live/discontinuities and DASH remain open.

@@ -1,4 +1,4 @@
-import { createSHA256 } from 'hash-wasm';
+import { withSHA256 } from './hash';
 import type { EngineOptions, ByteStore } from './ports';
 import type { DownloadJob, Segment, Resource } from '../domain/model';
 import { TrafficLimitError } from './speed/budget';
@@ -33,39 +33,40 @@ export async function hashRegion(
   length: number,
   signal: AbortSignal,
 ) {
-  const hash = await createSHA256();
-  hash.init();
-  for (let offset = start; offset < start + length; offset += 262144) {
-    checkAbort(signal);
-    const bytes = await store.read(offset, Math.min(262144, start + length - offset));
-    if (bytes.length !== Math.min(262144, start + length - offset))
-      throw new Error('Partial file is missing data.');
-    hash.update(bytes);
-    if (offset % 4194304 === 0) await sleep(0, signal);
-  }
-  return hash.digest('hex');
-}
-export async function verifyStoredFile(store: ByteStore, segments: Segment[], signal: AbortSignal) {
-  const full = await createSHA256();
-  const segmentHash = await createSHA256();
-  full.init();
-  for (const segment of [...segments].sort((a, b) => a.start - b.start)) {
-    segmentHash.init();
-    for (let offset = segment.start; offset <= segment.end; offset += 262144) {
+  return withSHA256(async (hash) => {
+    for (let offset = start; offset < start + length; offset += 262144) {
       checkAbort(signal);
-      const length = Math.min(262144, segment.end - offset + 1);
-      const bytes = await store.read(offset, length);
-      if (bytes.length !== length) throw new Error('Partial file is missing data.');
-      full.update(bytes);
-      segmentHash.update(bytes);
+      const bytes = await store.read(offset, Math.min(262144, start + length - offset));
+      if (bytes.length !== Math.min(262144, start + length - offset))
+        throw new Error('Partial file is missing data.');
+      hash.update(bytes);
       if (offset % 4194304 === 0) await sleep(0, signal);
     }
-    if (segmentHash.digest('hex') !== segment.hash)
-      throw new Error(
-        'Persisted range failed integrity verification. File has not been approved for export.',
-      );
-  }
-  return full.digest('hex');
+    return hash.digest('hex');
+  });
+}
+export async function verifyStoredFile(store: ByteStore, segments: Segment[], signal: AbortSignal) {
+  return withSHA256((full) =>
+    withSHA256(async (segmentHash) => {
+      for (const segment of [...segments].sort((a, b) => a.start - b.start)) {
+        segmentHash.init();
+        for (let offset = segment.start; offset <= segment.end; offset += 262144) {
+          checkAbort(signal);
+          const length = Math.min(262144, segment.end - offset + 1);
+          const bytes = await store.read(offset, length);
+          if (bytes.length !== length) throw new Error('Partial file is missing data.');
+          full.update(bytes);
+          segmentHash.update(bytes);
+          if (offset % 4194304 === 0) await sleep(0, signal);
+        }
+        if (segmentHash.digest('hex') !== segment.hash)
+          throw new Error(
+            'Persisted range failed integrity verification. File has not been approved for export.',
+          );
+      }
+      return full.digest('hex');
+    }),
+  );
 }
 
 export async function runDownload(options: EngineOptions) {
@@ -114,45 +115,48 @@ export async function runDownload(options: EngineOptions) {
     requestSignal: AbortSignal,
     prepaid = false,
   ) => {
-    if (!response.body) throw new Error('Server returned no response body.');
-    const reader = response.body.getReader();
-    const hash = await createSHA256();
-    hash.init();
-    let count = 0;
-    try {
-      while (true) {
-        checkAbort(requestSignal);
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const idle = new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new DOMException('Server stalled.', 'TimeoutError')),
-            30000,
+    return withSHA256(async (hash) => {
+      if (!response.body) throw new Error('Server returned no response body.');
+      const reader = response.body.getReader();
+      let count = 0;
+      try {
+        while (true) {
+          checkAbort(requestSignal);
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const idle = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new DOMException('Server stalled.', 'TimeoutError')),
+              30000,
+            );
+          });
+          const result = await Promise.race([reader.read(), idle]).finally(() =>
+            clearTimeout(timer),
           );
-        });
-        const result = await Promise.race([reader.read(), idle]).finally(() => clearTimeout(timer));
-        if (result.done) break;
-        if (end !== null && start + count + result.value.length - 1 > end)
-          throw new RangeErrorResponse('Server returned more bytes than requested.');
-        await limiter.consume(result.value.length, requestSignal);
-        await options.globalThrottle?.(result.value.length, requestSignal);
-        if (!prepaid) await options.accountPayload?.(result.value.length, requestSignal);
-        checkAbort(requestSignal);
-        await store.write(start + count, result.value);
-        hash.update(result.value);
-        count += result.value.length;
-        received += result.value.length;
-        activeBytes.set(index, count);
-        updateBytes();
-        meter.add(result.value.length);
-        connectionMeters.get(index)?.add(result.value.length);
-        emit();
+          if (result.done) break;
+          if (end !== null && start + count + result.value.length - 1 > end)
+            throw new RangeErrorResponse('Server returned more bytes than requested.');
+          await limiter.consume(result.value.length, requestSignal);
+          await options.globalThrottle?.(result.value.length, requestSignal);
+          if (!prepaid) await options.accountPayload?.(result.value.length, requestSignal);
+          checkAbort(requestSignal);
+          await store.write(start + count, result.value);
+          hash.update(result.value);
+          count += result.value.length;
+          received += result.value.length;
+          activeBytes.set(index, count);
+          updateBytes();
+          meter.add(result.value.length);
+          connectionMeters.get(index)?.add(result.value.length);
+          emit();
+        }
+        if (end !== null && count !== end - start + 1)
+          throw new TypeError('Response was truncated.');
+        return { count, hash: hash.digest('hex') };
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
       }
-      if (end !== null && count !== end - start + 1) throw new TypeError('Response was truncated.');
-      return { count, hash: hash.digest('hex') };
-    } finally {
-      await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-    }
+    });
   };
   try {
     let resource: Resource;

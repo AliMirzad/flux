@@ -1,0 +1,11 @@
+{
+  "from": "0.10.0",
+  "to": "1.0.0-rc.1",
+  "chrome": "155.0.8059.86",
+  "sameExtensionId": true,
+  "settingsAndQueuesRetained": true,
+  "retainedBytes": 6291456,
+  "verifiedBytes": 8388608,
+  "sha256": "16d7e00828dd81231a3f96b684dfb9b98baba3cd385a440ea5b9569788232c71",
+  "retainedRangesReplayed": false
+}

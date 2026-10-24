@@ -4578,8 +4578,8 @@ var require_transmuxer = __commonJS({
         }
         frames = frameUtils.groupNalsIntoFrames(nalUnits);
         gops = frameUtils.groupFramesIntoGops(frames);
-        if (!gops[0][0].keyFrame) {
-          throw new Error("This TS segment starts between keyframes. A continuous remux workflow is needed; no frames were discarded.");
+        if (!gops[0][0].keyFrame && !options.fluxContinuousVideo) {
+          throw new Error("This TS segment starts between keyframes. Start with an independent segment; no frames were discarded.");
           gopForFusion = this.getGopForFusion_(nalUnits[0], track);
           if (gopForFusion) {
             prependedContentDuration = gopForFusion.duration;
@@ -4981,6 +4981,7 @@ var require_transmuxer = __commonJS({
             while (i--) {
               if (!videoTrack && data.tracks[i].type === "video") {
                 videoTrack = data.tracks[i];
+                if (options.fluxVideoConfig) Object.assign(videoTrack, options.fluxVideoConfig);
                 videoTrack.timelineStartInfo.baseMediaDecodeTime = self.baseMediaDecodeTime;
               } else if (!audioTrack && data.tracks[i].type === "audio") {
                 audioTrack = data.tracks[i];

@@ -1,0 +1,54 @@
+.display-options {
+  position: relative;
+}
+.display-options summary {
+  cursor: pointer;
+  list-style: none;
+}
+.display-options summary::-webkit-details-marker {
+  display: none;
+}
+.display-options fieldset {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 5;
+  width: min(235px, calc(100vw - 48px));
+  margin: 0;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px #0002;
+}
+.display-options legend {
+  font-size: 12px;
+  font-weight: 600;
+}
+.display-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.downloads-section[data-compact='true'] .download-card {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  min-height: 0;
+}
+.downloads-section[data-compact='true'] .download-main {
+  gap: 3px;
+}
+.downloads-section[data-compact='true'] .file-icon {
+  width: 34px;
+  height: 34px;
+}
+.downloads-section[data-metadata='false'] .file-meta,
+.downloads-section[data-size='false'] .download-size,
+.downloads-section[data-speed='false'] .transfer-speed,
+.downloads-section[data-eta='false'] .transfer-eta,
+.downloads-section[data-connections='false'] .transfer-connections {
+  display: none;
+}

@@ -1,11 +1,19 @@
 import { TransportConverter } from './transmux';
 import { safeError } from '../../shared/security';
-const converter = new TransportConverter();
+let converter: TransportConverter | undefined;
 self.onmessage = (
-  event: MessageEvent<{ id: number; bytes?: Uint8Array; duration?: number; index?: number }>,
+  event: MessageEvent<{
+    id: number;
+    bytes?: Uint8Array;
+    duration?: number;
+    index?: number;
+    initialization?: Uint8Array;
+    discontinuity?: boolean;
+  }>,
 ) => {
   const message = event.data;
   try {
+    converter ??= new TransportConverter(message.initialization, message.discontinuity);
     if (message.bytes) {
       converter.push(message.bytes);
       postMessage({ id: message.id });

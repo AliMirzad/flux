@@ -1,0 +1,187 @@
+[
+  {
+    "date": "2026-10-24T06:59:05.437Z",
+    "chrome": "155.0.8059.86",
+    "platform": "win32",
+    "size": 1073741824,
+    "verifiedSeconds": 44.322803799999996,
+    "exportSeconds": 9.966876599999999,
+    "sha256": "2b3cf829d1c2d055e601cf528ad61df6705ab1273dd5ae0aa8a77206d788f3b8",
+    "checkpointBytes": 896532480,
+    "restartPreserved": true,
+    "retainedRangesReplayed": false,
+    "exportedBytesIndependentlyValidated": 1073741824,
+    "beforeRestart": {
+      "samples": 3,
+      "cpuSeconds": 24.274736,
+      "peakPrivateBytes": 686313472,
+      "peakWorkingSetBytes": 967516160,
+      "errors": []
+    },
+    "afterRestart": {
+      "samples": 15,
+      "cpuSeconds": 57.229199000000015,
+      "peakPrivateBytes": 1083990016,
+      "peakWorkingSetBytes": 1369997312,
+      "errors": []
+    }
+  },
+  {
+    "date": "2026-10-24T07:14:49.408Z",
+    "chrome": "155.0.8059.86",
+    "platform": "win32",
+    "size": 5368709120,
+    "verifiedSeconds": 176.91667040000004,
+    "exportSeconds": 78.08893309999996,
+    "sha256": "4393095147ced248a91f037141e35c35c3bdfd55f7231c3a2e23ca9cee518578",
+    "checkpointBytes": 856686592,
+    "restartPreserved": true,
+    "retainedRangesReplayed": false,
+    "exportedBytesIndependentlyValidated": 5368709120,
+    "beforeRestart": {
+      "samples": 2,
+      "cpuSeconds": 9.897993999999999,
+      "peakPrivateBytes": 669995008,
+      "peakWorkingSetBytes": 973668352,
+      "errors": []
+    },
+    "afterRestart": {
+      "samples": 72,
+      "cpuSeconds": 303.99856700000004,
+      "peakPrivateBytes": 874356736,
+      "peakWorkingSetBytes": 1172942848,
+      "errors": []
+    }
+  },
+  {
+    "date": "2026-10-24T10:48:30.257Z",
+    "chrome": "155.0.8059.86",
+    "platform": "win32",
+    "size": 10737418240,
+    "verifiedSeconds": 370.29288710000003,
+    "exportSeconds": 185.75917420000007,
+    "sha256": "79c644901fac03fea8509730944b9e05205a4a1abc81b63938ae68f2b015d6d5",
+    "checkpointBytes": 173015040,
+    "restartPreserved": true,
+    "retainedRangesReplayed": false,
+    "exportedBytesIndependentlyValidated": 10737418240,
+    "beforeRestart": {
+      "samples": 4,
+      "cpuSeconds": 7.970463,
+      "peakPrivateBytes": 533336064,
+      "peakWorkingSetBytes": 822337536,
+      "errors": []
+    },
+    "afterRestart": {
+      "samples": 276,
+      "cpuSeconds": 653.027703,
+      "peakPrivateBytes": 2111045632,
+      "peakWorkingSetBytes": 2401529856,
+      "errors": []
+    }
+  },
+  {
+    "date": "2026-10-24T10:57:53.854Z",
+    "chrome": "155.0.8059.86",
+    "platform": "win32",
+    "artifact": {
+      "version": "1.0.0",
+      "versionName": "1.0.0-rc.1",
+      "executableHashes": {
+        "manager-ByJjYDLM.js": "d5bb7aeb8c49f084d93bbef2e3f62357ed4c194314ef85271e75bf32f115b803",
+        "popup-D2SDm41j.js": "fd61dd94bb2c61444cd3f5542c52291ffef38b2dda2e2eb2ad99f97cab792a3b",
+        "queue-status-DtMZhyAl.js": "4ccbd04edd69ea29bd914462d0bac82cd17514a291ad3d62c2e08778dd7987e8",
+        "transmux-worker-D_pl-Abj.js": "d487577003d0c250879b438eb4e430338e7da2f57c482f1d5ad382cff4903506",
+        "worker-BRO5uTA2.js": "6a3f761436dff975350231fc1baa903112c081ea3f7a76da0a17a2352ae205ec"
+      }
+    },
+    "size": 1073741824,
+    "verifiedSeconds": 39.65697349999999,
+    "exportSeconds": 12.267533000000007,
+    "sha256": "2b3cf829d1c2d055e601cf528ad61df6705ab1273dd5ae0aa8a77206d788f3b8",
+    "checkpointBytes": 162529280,
+    "restartPreserved": true,
+    "retainedRangesReplayed": false,
+    "exportedBytesIndependentlyValidated": 1073741824,
+    "beforeRestart": {
+      "samples": 4,
+      "cpuSeconds": 8.058791999999999,
+      "peakPrivateBytes": 654282752,
+      "peakWorkingSetBytes": 928985088,
+      "errors": []
+    },
+    "afterRestart": {
+      "samples": 12,
+      "cpuSeconds": 33.34344499999999,
+      "peakPrivateBytes": 546500608,
+      "peakWorkingSetBytes": 816996352,
+      "errors": []
+    },
+    "exportResources": {
+      "samples": 5,
+      "cpuSeconds": 13.409629000000002,
+      "peakPrivateBytes": 620146688,
+      "peakWorkingSetBytes": 918343680,
+      "errors": []
+    },
+    "validationResources": {
+      "samples": 9,
+      "cpuSeconds": 17.987429999999996,
+      "peakPrivateBytes": 1196396544,
+      "peakWorkingSetBytes": 1492316160,
+      "errors": []
+    }
+  },
+  {
+    "date": "2026-10-24T11:04:54.652Z",
+    "chrome": "155.0.8059.86",
+    "platform": "win32",
+    "artifact": {
+      "version": "1.0.0",
+      "versionName": "1.0.0-rc.1",
+      "executableHashes": {
+        "manager-ByJjYDLM.js": "d5bb7aeb8c49f084d93bbef2e3f62357ed4c194314ef85271e75bf32f115b803",
+        "popup-D2SDm41j.js": "fd61dd94bb2c61444cd3f5542c52291ffef38b2dda2e2eb2ad99f97cab792a3b",
+        "queue-status-DtMZhyAl.js": "4ccbd04edd69ea29bd914462d0bac82cd17514a291ad3d62c2e08778dd7987e8",
+        "transmux-worker-D_pl-Abj.js": "d487577003d0c250879b438eb4e430338e7da2f57c482f1d5ad382cff4903506",
+        "worker-BRO5uTA2.js": "6a3f761436dff975350231fc1baa903112c081ea3f7a76da0a17a2352ae205ec"
+      }
+    },
+    "size": 5368709120,
+    "verifiedSeconds": 225.0146983,
+    "exportSeconds": 84.94263429999998,
+    "sha256": "4393095147ced248a91f037141e35c35c3bdfd55f7231c3a2e23ca9cee518578",
+    "checkpointBytes": 146800640,
+    "restartPreserved": true,
+    "retainedRangesReplayed": false,
+    "exportedBytesIndependentlyValidated": 5368709120,
+    "beforeRestart": {
+      "samples": 12,
+      "cpuSeconds": 22.849664,
+      "peakPrivateBytes": 1196396544,
+      "peakWorkingSetBytes": 1492316160,
+      "errors": []
+    },
+    "afterRestart": {
+      "samples": 74,
+      "cpuSeconds": 192.685088,
+      "peakPrivateBytes": 836136960,
+      "peakWorkingSetBytes": 1147924480,
+      "errors": []
+    },
+    "exportResources": {
+      "samples": 31,
+      "cpuSeconds": 79.75321899999999,
+      "peakPrivateBytes": 841285632,
+      "peakWorkingSetBytes": 1130926080,
+      "errors": []
+    },
+    "validationResources": {
+      "samples": 36,
+      "cpuSeconds": 89.94014799999998,
+      "peakPrivateBytes": 1799540736,
+      "peakWorkingSetBytes": 2084581376,
+      "errors": []
+    }
+  }
+]

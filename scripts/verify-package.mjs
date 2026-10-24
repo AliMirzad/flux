@@ -2,15 +2,22 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 const root = 'dist';
 const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
+const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 const fail = (message) => {
   throw new Error(message);
 };
 if (manifest.manifest_version !== 3) fail('Release must use Manifest V3.');
+if (
+  manifest.version !== pkg.version.split('-')[0] ||
+  (manifest.version_name ?? manifest.version) !== pkg.version
+)
+  fail('Package and manifest versions must agree.');
 if (manifest.host_permissions?.length) fail('Release must not pregrant remote host access.');
 if (manifest.externally_connectable || manifest.web_accessible_resources)
   fail('Unexpected external extension entrypoint.');
 const allowed = new Set([
   'storage',
+  'unlimitedStorage',
   'downloads',
   'contextMenus',
   'alarms',
@@ -18,8 +25,18 @@ const allowed = new Set([
   'scripting',
   'webRequest',
 ]);
-if (manifest.permissions.some((permission) => !allowed.has(permission)))
+if (
+  manifest.permissions.length !== allowed.size ||
+  manifest.permissions.some((permission) => !allowed.has(permission))
+)
   fail('Unexpected packaged permission.');
+if (
+  JSON.stringify([...(manifest.optional_permissions ?? [])].sort()) !== '["notifications"]' ||
+  JSON.stringify([...(manifest.optional_host_permissions ?? [])].sort()) !==
+    '["http://*/*","https://*/*"]' ||
+  manifest.minimum_chrome_version !== '120'
+)
+  fail('Unexpected optional access or minimum Chrome version.');
 const csp = manifest.content_security_policy.extension_pages;
 if (
   csp.includes("'unsafe-eval'") ||

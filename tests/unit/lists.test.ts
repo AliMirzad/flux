@@ -58,7 +58,7 @@ describe('reviewable batch download lists', () => {
       JSON.stringify([{ url: 'https://example.org/a', expectedHash: 'wrong' }]),
       JSON.stringify({
         format: 'flux-download-list',
-        version: 4,
+        version: 5,
         items: [{ url: 'https://example.org/a' }],
       }),
       JSON.stringify({ format: 'other-format', version: 1, items: [] }),
@@ -75,6 +75,28 @@ describe('reviewable batch download lists', () => {
     expect(imported.media).toBe('hls');
     expect(imported).not.toHaveProperty('planHash');
     expect(createJob(imported).media).toEqual({ kind: 'hls' });
+  });
+  it('round-trips DASH selections and recording limits in version 4 without checkpoints or consent', () => {
+    const jobs = [
+      ...['en', 'fa'].map((audioId) =>
+        createJob({
+          url: 'https://example.org/video.mpd',
+          media: 'dash',
+          dash: { videoId: 'video-720', audioId },
+          useBrowserCookies: true,
+        }),
+      ),
+      createJob({ url: 'https://example.org/live.m3u8', media: 'hls', recordingSeconds: 120 }),
+    ];
+    jobs[2]!.media!.recording!.snapshot = 'private durable plan';
+    const serialized = serializeDownloadList(jobs);
+    expect(JSON.parse(serialized).version).toBe(4);
+    const imported = parseDownloadList(serialized).map((input) => createJob(input));
+    expect(imported).toHaveLength(3);
+    expect(imported.slice(0, 2).map((job) => job.media!.dash!.audioId)).toEqual(['en', 'fa']);
+    expect(imported[2]!.media!.recording).toEqual({ maxSeconds: 120 });
+    expect(imported.every((job) => job.useBrowserCookies === false)).toBe(true);
+    expect(serialized).not.toContain('private durable plan');
   });
   it('round-trips two audio choices for the same video in version 3 without merging them', () => {
     const jobs = ['en', 'fa'].map((language) =>

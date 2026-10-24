@@ -47,6 +47,10 @@ const output = await build({
               );
             } else {
               source = source.replace(
+                '            videoTrack = data.tracks[i];',
+                '            videoTrack = data.tracks[i];\n            if (options.fluxVideoConfig) Object.assign(videoTrack, options.fluxVideoConfig);',
+              );
+              source = source.replace(
                 '    nalUnits.push(nalUnit);',
                 '    if (nalUnits.length >= 65536 || nalUnit.data.byteLength > 8388608) throw new Error("Excessive H.264 metadata or sample size.");\n    nalUnits.push(nalUnit);',
               );
@@ -56,7 +60,7 @@ const output = await build({
               );
               source = source.replace(
                 '    if (!gops[0][0].keyFrame) {',
-                '    if (!gops[0][0].keyFrame) {\n      throw new Error("This TS segment starts between keyframes. A continuous remux workflow is needed; no frames were discarded.");',
+                '    if (!gops[0][0].keyFrame && !options.fluxContinuousVideo) {\n      throw new Error("This TS segment starts between keyframes. Start with an independent segment; no frames were discarded.");',
               );
             }
             return { contents: source, loader: 'js' };

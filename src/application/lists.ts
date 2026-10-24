@@ -13,7 +13,7 @@ export function parseDownloadList(text: string): NewDownload[] {
       const envelope = parsed as { format?: unknown; version?: unknown } | null;
       if (envelope?.format !== undefined && envelope.format !== 'flux-download-list')
         throw new Error('Unsupported download list format.');
-      if (envelope?.version !== undefined && ![1, 2, 3].includes(envelope.version as number))
+      if (envelope?.version !== undefined && ![1, 2, 3, 4].includes(envelope.version as number))
         throw new Error('This download list requires a supported format version.');
     }
     values = Array.isArray(parsed) ? parsed : (parsed as { items: unknown[] })?.items;
@@ -56,11 +56,17 @@ export function parseDownloadList(text: string): NewDownload[] {
         speedLimit: item.speedLimit,
         expectedHash: item.expectedHash,
         media: item.media,
+        recordingSeconds: item.recordingSeconds,
+        dash: item.dash,
         audioUrl: item.audioUrl,
         audioLabel: item.audioLabel,
       };
       const validated = createJob(input); // Validate metadata before committing any entry or requesting permission.
-      const identity = downloadIdentity(validated.url, validated.media?.audioUrl);
+      const identity = downloadIdentity(
+        validated.url,
+        validated.media?.audioUrl,
+        validated.media?.dash,
+      );
       if (seen.has(identity)) continue;
       seen.add(identity);
       inputs.push(input);
@@ -91,7 +97,13 @@ export function serializeDownloadList(jobs: DownloadJob[]) {
   return JSON.stringify(
     {
       format: 'flux-download-list',
-      version: jobs.some((job) => job.media?.audioUrl) ? 3 : jobs.some((job) => job.media) ? 2 : 1,
+      version: jobs.some((job) => job.media?.kind === 'dash' || job.media?.recording)
+        ? 4
+        : jobs.some((job) => job.media?.audioUrl)
+          ? 3
+          : jobs.some((job) => job.media)
+            ? 2
+            : 1,
       items: jobs
         .filter(
           (job) =>
@@ -100,6 +112,8 @@ export function serializeDownloadList(jobs: DownloadJob[]) {
         .map((job) => ({
           url: job.url,
           media: job.media?.kind,
+          recordingSeconds: job.media?.recording?.maxSeconds,
+          dash: job.media?.dash,
           audioUrl: job.media?.audioUrl,
           audioLabel: job.media?.audioLabel,
           filename: job.filename,

@@ -4,8 +4,33 @@ import { readFile } from 'node:fs/promises';
 import { TransportConverter } from '../../src/engine/media/transmux';
 import { TransportGuard, maxTransportPartBytes } from '../../src/engine/media/transport';
 import { inspectMp4Init, mp4Boxes, inspectMoof } from '../../src/engine/media/mp4';
+import { encodedSampleProof } from '../fixtures/sample-proof';
 const source = await readFile(new URL('../fixtures/media/part-0.mpegts', import.meta.url));
 describe('bounded MPEG-TS conversion', () => {
+  it('restores codec context and preserves non-keyframe samples across split program tables and tiny reads', async () => {
+    const durations = [0.5104666666666666, 0.5399333333333334];
+    let initialization: Uint8Array | undefined;
+    const fragments: Uint8Array[] = [];
+    for (let index = 0; index < 2; index++) {
+      const bytes = await readFile(
+        new URL(`../fixtures/media/continuous-${index}.mpegts`, import.meta.url),
+      );
+      const converter = new TransportConverter(initialization);
+      for (let at = 0; at < bytes.length; at += 257) converter.push(bytes.subarray(at, at + 257));
+      const output = converter.finish(durations[index]!, index);
+      if (initialization) expect(output.initialization).toEqual(initialization);
+      initialization ??= output.initialization;
+      fragments.push(output.media);
+      const partial = new TransportGuard();
+      partial.push(bytes.subarray(0, 376));
+      expect(() => partial.finish()).toThrow(/truncated/);
+    }
+    const result = encodedSampleProof(Buffer.concat([initialization!, ...fragments]));
+    const source = encodedSampleProof(
+      await readFile(new URL('../fixtures/media/source.mp4', import.meta.url)),
+    );
+    expect(result).toEqual({ video: source.video.slice(0, 16), audio: source.audio.slice(0, 44) });
+  });
   it('retains both H.264/AAC tracks with explicit relative fragment addresses and declared video duration', () => {
     const converter = new TransportConverter();
     for (let at = 0; at < source.length; at += 257) converter.push(source.subarray(at, at + 257));

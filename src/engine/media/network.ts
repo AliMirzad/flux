@@ -117,14 +117,14 @@ export async function mediaRetry<T>(
     }
   }
 }
-export async function fetchHls(url: string, options: MediaNetwork) {
+export async function fetchManifestText(url: string, options: MediaNetwork) {
   return mediaRetry(async () => {
     const response = await mediaRequest(url, {}, options);
     let bytes = 0;
     const chunks: Uint8Array[] = [];
     await readMediaBody(response, options.signal, async (chunk) => {
       bytes += chunk.length;
-      if (bytes > maxManifestBytes) throw new Error('HLS playlist exceeds 4 MiB.');
+      if (bytes > maxManifestBytes) throw new Error('Media manifest exceeds 4 MiB.');
       chunks.push(chunk.slice());
     });
     const data = new Uint8Array(bytes);
@@ -138,18 +138,24 @@ export async function fetchHls(url: string, options: MediaNetwork) {
     return {
       text,
       url: finalUrl,
-      manifest: parseHls(text, finalUrl, options.allowLocalForTests),
       etag: response.headers.get('etag'),
       modified: response.headers.get('last-modified'),
     };
   }, options);
+}
+export async function fetchHls(url: string, options: MediaNetwork, allowLive = false) {
+  const result = await fetchManifestText(url, options);
+  return {
+    ...result,
+    manifest: parseHls(result.text, result.url, options.allowLocalForTests, allowLive),
+  };
 }
 export async function reviewHls(
   url: string,
   options: MediaNetwork,
   audioUrl?: string,
 ): Promise<HlsReview> {
-  const result = await fetchHls(url, options);
+  const result = await fetchHls(url, options, true);
   if (result.manifest.kind === 'master')
     return {
       kind: 'master',
@@ -163,6 +169,8 @@ export async function reviewHls(
     new URL(audioUrl).protocol === 'http:'
   )
     throw new Error('An insecure HLS audio address was blocked.');
+  if (result.manifest.live && audioUrl)
+    throw new Error('Live recording currently requires audio in the selected video rendition.');
   const audio = audioUrl ? await fetchHls(audioUrl, options) : undefined;
   const paired = audio ? pairHlsPlans(result.manifest, audio.manifest) : undefined;
   const manifests = [result, ...(audio ? [audio] : [])];
@@ -179,6 +187,12 @@ export async function reviewHls(
       ...item.manifest.parts.flatMap((part) => [
         part.url,
         ...(part.encryption ? [part.encryption.url] : []),
+        ...(part.initialization
+          ? [
+              part.initialization.url,
+              ...(part.initialization.encryption ? [part.initialization.encryption.url] : []),
+            ]
+          : []),
       ]),
     ];
   });
@@ -190,11 +204,15 @@ export async function reviewHls(
     encrypted: manifests.some(
       (item) =>
         item.manifest.kind === 'media' &&
-        (!!item.manifest.init?.encryption || item.manifest.parts.some((part) => !!part.encryption)),
+        (!!item.manifest.init?.encryption ||
+          item.manifest.parts.some(
+            (part) => !!part.encryption || !!part.initialization?.encryption,
+          )),
     ),
     url: result.url,
     parts: paired ? paired.sourceParts : result.manifest.parts.length,
     duration: paired ? paired.duration : result.manifest.duration,
+    ...(result.manifest.live ? { live: true } : {}),
     origins,
     ...(audio ? { audioUrl: audio.url } : {}),
   };

@@ -20,6 +20,9 @@
   padding: 14px 26px 0;
   gap: 16px;
 }
+.add-form > * {
+  flex-shrink: 0;
+}
 .modal > .add-form {
   padding: 14px 26px 0;
 }
