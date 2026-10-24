@@ -1,0 +1,1480 @@
+{
+  "date": "2026-10-24T11:12:54.905Z",
+  "version": "1.0.0-rc.1",
+  "source": {
+    "ownSynthetic": true,
+    "videoSamples": 62,
+    "audioSamples": 185,
+    "duration": 4.0832
+  },
+  "cases": {
+    "aes-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 52973,
+      "sha256": "b401e2699b342d4e446ef5b8e6450b52de596c449e1bda37fd34227979297b07",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "aes-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "aes-ts": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9466666666666668,
+      "bytes": 54156,
+      "sha256": "885722613652e6b601d824c62e7633a0a045595d91a2741b522ef920fde210ab",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "continuous-ts": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9466666666666668,
+      "bytes": 54392,
+      "sha256": "64aa61f29d64c0dcf704fb66969182f9e0e943e87c57f7b7dc80f9fd3d6502db",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "dash-index-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-list-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-live-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-multi-index-separate-alternate-hls": {
+      "duration": 8.1664,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ],
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 890.625,
+          "rms": 0.07062020211077484
+        },
+        {
+          "hz": 445.3125,
+          "rms": 0.0709197498591288
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07069719258106814
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07062020211077484
+        },
+        {
+          "hz": 445.3125,
+          "rms": 0.07059508202933767
+        },
+        {
+          "hz": 867.1875,
+          "rms": 0.07060445827780704
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07061707772325704
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        },
+        {
+          "hz": 880,
+          "rms": 0.07068834438080858
+        },
+        {
+          "hz": 440,
+          "rms": 0.07076253330811284
+        },
+        {
+          "hz": 880,
+          "rms": 0.07065528138889071
+        }
+      ],
+      "audioDuration": 7.893,
+      "bytes": 104956,
+      "sha256": "ddfef127e57cf6b48d35246138f013e4d96c3724e8a663575304e8fa379457c2",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 370,
+        "video": 124,
+        "identicalToSource": false,
+        "repeatedSource": true,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-multi-number-separate-alternate-hls": {
+      "duration": 8.1664,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ],
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 890.625,
+          "rms": 0.07072376799971146
+        },
+        {
+          "hz": 445.3125,
+          "rms": 0.0703967650597181
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07065344510279353
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07062020211077484
+        },
+        {
+          "hz": 445.3125,
+          "rms": 0.07059508202933767
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07063914867751214
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07061707772325704
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        },
+        {
+          "hz": 880,
+          "rms": 0.07068834438080858
+        },
+        {
+          "hz": 440,
+          "rms": 0.07076253330811284
+        },
+        {
+          "hz": 880,
+          "rms": 0.07065528138889071
+        }
+      ],
+      "audioDuration": 7.893,
+      "bytes": 104956,
+      "sha256": "ddfef127e57cf6b48d35246138f013e4d96c3724e8a663575304e8fa379457c2",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 370,
+        "video": 124,
+        "identicalToSource": false,
+        "repeatedSource": true,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-number-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-offset-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "dash-time-separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "epoch-hls": {
+      "duration": 8.1664,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ],
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 421.875,
+          "rms": 0.07087350979723327
+        },
+        {
+          "hz": 867.1875,
+          "rms": 0.0706782659304982
+        },
+        {
+          "hz": 1335.9375,
+          "rms": 0.07062925832033502
+        },
+        {
+          "hz": 421.875,
+          "rms": 0.07087350979723327
+        },
+        {
+          "hz": 867.1875,
+          "rms": 0.07053563713366832
+        },
+        {
+          "hz": 1312.5,
+          "rms": 0.0706538957535933
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 450,
+          "rms": 0.07070588252237728
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        },
+        {
+          "hz": 440,
+          "rms": 0.07068715721465334
+        },
+        {
+          "hz": 880,
+          "rms": 0.07061854897606508
+        },
+        {
+          "hz": 1320,
+          "rms": 0.07065647595869662
+        }
+      ],
+      "audioDuration": 7.893,
+      "bytes": 104700,
+      "sha256": "3bb936730289bd9e351fdd8a32246ee0b8fba82107b1d4b57d2e775a76c5e8f6",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 370,
+        "video": 124,
+        "identicalToSource": false,
+        "repeatedSource": true,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "epoch-ts-ts": {
+      "duration": 8.1664,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ],
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 445.3125,
+          "rms": 0.07046809050757012
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07057336130151225
+        },
+        {
+          "hz": 1335.9375,
+          "rms": 0.0705661364262147
+        },
+        {
+          "hz": 445.3125,
+          "rms": 0.07063289973633705
+        },
+        {
+          "hz": 890.625,
+          "rms": 0.07053820891926788
+        },
+        {
+          "hz": 1335.9375,
+          "rms": 0.07053854200600054
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 450,
+          "rms": 0.07070588252237728
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        },
+        {
+          "hz": 440,
+          "rms": 0.07068715721465334
+        },
+        {
+          "hz": 880,
+          "rms": 0.07061854897606508
+        },
+        {
+          "hz": 1320,
+          "rms": 0.07065647595869662
+        }
+      ],
+      "audioDuration": 7.8933333333333335,
+      "bytes": 107185,
+      "sha256": "4f011b45452ffdabc726e61b3fd187bb5cc15e2e5117c03bec137daac0e3dd5d",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 370,
+        "video": 124,
+        "identicalToSource": false,
+        "repeatedSource": true,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 52973,
+      "sha256": "b401e2699b342d4e446ef5b8e6450b52de596c449e1bda37fd34227979297b07",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "live-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 52973,
+      "sha256": "b401e2699b342d4e446ef5b8e6450b52de596c449e1bda37fd34227979297b07",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    },
+    "separate-alternate-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 880,
+          "rms": 0.07065523928661338
+        },
+        {
+          "hz": 460,
+          "rms": 0.0705556661334391
+        },
+        {
+          "hz": 880,
+          "rms": 0.07066509606696687
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": false,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "alternate"
+      }
+    },
+    "separate-original-hls": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9463333333333335,
+      "bytes": 53101,
+      "sha256": "33607a3932d6ecdd1c28a2bbdac8f812cb0e854052e2f00e69f8bef5b982cf64",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "original"
+      }
+    },
+    "separate-ts-separate-original-ts": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9466666666666668,
+      "bytes": 54156,
+      "sha256": "8c0f44671202cbd7b0dc1b3c9c6ae5a00511a7ac439cf2a647890bd28e50f2ef",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "original"
+      }
+    },
+    "ts": {
+      "duration": 4.0832,
+      "width": 160,
+      "height": 90,
+      "colors": [
+        [
+          254,
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          255,
+          0,
+          255
+        ],
+        [
+          0,
+          1,
+          253,
+          255
+        ]
+      ],
+      "tones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "decodedTones": [
+        {
+          "hz": 440,
+          "rms": 0.07064378958835141
+        },
+        {
+          "hz": 880,
+          "rms": 0.07074757895570544
+        },
+        {
+          "hz": 1320,
+          "rms": 0.0706935497952577
+        }
+      ],
+      "audioDuration": 3.9466666666666668,
+      "bytes": 54156,
+      "sha256": "885722613652e6b601d824c62e7633a0a045595d91a2741b522ef920fde210ab",
+      "chrome": "155.0.8059.86",
+      "encodedSamples": {
+        "audio": 185,
+        "video": 62,
+        "identicalToSource": true,
+        "repeatedSource": false,
+        "identicalToSelectedSource": true,
+        "audioSelection": "muxed"
+      }
+    }
+  }
+}

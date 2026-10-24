@@ -10,8 +10,17 @@ await build({
   minify: true,
 });
 const licenses = await Promise.all(
-  ['react/LICENSE', 'react-dom/LICENSE', 'lucide-react/LICENSE', 'hash-wasm/LICENSE'].map(
-    async (path) => `${path.split('/')[0]}\n${await readFile(`node_modules/${path}`, 'utf8')}`,
+  [
+    'react/LICENSE',
+    'react-dom/LICENSE',
+    'lucide-react/LICENSE',
+    'hash-wasm/LICENSE',
+    '@rgrove/parse-xml/LICENSE',
+    'parse5/LICENSE',
+    'entities/LICENSE',
+  ].map(
+    async (path) =>
+      `${path.replace(/\/LICENSE$/, '')}\n${await readFile(`node_modules/${path}`, 'utf8')}`,
   ),
 );
 await writeFile('dist/THIRD_PARTY_NOTICES.txt', licenses.join('\n\n---\n\n'));

@@ -4,6 +4,10 @@ export interface HlsEncryption {
   iv: string;
 }
 export interface HlsPart {
+  epoch?: number;
+  presentationOffset?: number;
+  sourceOffset?: number;
+  initialization?: HlsPart;
   url: string;
   range?: { start: number; end: number };
   duration?: number;
@@ -33,6 +37,9 @@ export type HlsManifest =
       parts: HlsPart[];
       sequence: number;
       duration: number;
+      live?: boolean;
+      targetDuration?: number;
+      presentationStart?: number;
     };
 export const maxManifestBytes = 4 * 1024 * 1024;
 export const maxMediaParts = 32768;
@@ -78,7 +85,12 @@ function byteRange(value: string, previous?: HlsPart['range']) {
     throw new Error('HLS byte range needs a safe explicit initial offset.');
   return { start, end };
 }
-export function parseHls(text: string, base: string, allowLocal = false): HlsManifest {
+export function parseHls(
+  text: string,
+  base: string,
+  allowLocal = false,
+  allowLive = false,
+): HlsManifest {
   if (text.length > maxManifestBytes)
     throw new Error('HLS playlist exceeds the supported manifest size.');
   const lines = text
@@ -129,10 +141,17 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
   let pendingVariant: Record<string, string> | undefined;
   const variantGroups: string[] = [];
   let init: HlsPart | undefined,
+    currentInit: HlsPart | undefined,
+    nextInit: HlsPart | undefined,
+    epoch = 0,
+    epochBoundary = false,
+    elapsed = 0,
+    discontinuitySequenceSeen = false,
     duration: number | undefined,
     range: string | undefined,
     sequence = 0,
-    ended = false;
+    ended = false,
+    targetDuration: number | undefined;
   const parts: HlsPart[] = [];
   for (const line of lines.slice(1)) {
     if (line.startsWith('#EXT-X-KEY:')) {
@@ -183,11 +202,11 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
         ...(key ? { encryption: { url: key.url, iv: key.iv! } } : {}),
         ...(attrs.BYTERANGE ? { range: byteRange(attrs.BYTERANGE) } : {}),
       };
-      if (init && JSON.stringify(init) !== JSON.stringify(next))
-        throw new Error(
-          'Changing HLS initialization sections needs a remux workflow that is not supported yet.',
-        );
-      init = next;
+      if (init && JSON.stringify(currentInit) !== JSON.stringify(next) && !epochBoundary)
+        throw new Error('Changing HLS initialization requires a declared discontinuity.');
+      init ??= next;
+      if (epochBoundary && JSON.stringify(currentInit) !== JSON.stringify(next)) nextInit = next;
+      currentInit = next;
     } else if (line.startsWith('#EXTINF:')) {
       if (duration !== undefined) throw new Error('HLS segment address is missing.');
       duration = Number(line.slice(8).split(',')[0]);
@@ -199,9 +218,20 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
         throw new Error('The HLS media sequence must occur once before its segments.');
       sequence = integer(line.slice(22));
       sequenceSeen = true;
+    } else if (line.startsWith('#EXT-X-TARGETDURATION:')) {
+      targetDuration = integer(line.slice(22), false);
+      if (targetDuration > 86400) throw new Error('Invalid HLS target duration.');
+    } else if (line.startsWith('#EXT-X-DISCONTINUITY-SEQUENCE:')) {
+      if (parts.length || discontinuitySequenceSeen || epochBoundary)
+        throw new Error('Invalid HLS discontinuity sequence placement.');
+      epoch = integer(line.slice(30));
+      discontinuitySequenceSeen = true;
+    } else if (line === '#EXT-X-DISCONTINUITY') {
+      if (duration !== undefined || !Number.isSafeInteger(++epoch))
+        throw new Error('Invalid HLS discontinuity boundary.');
+      epochBoundary = true;
     } else if (line === '#EXT-X-ENDLIST') ended = true;
     else if (
-      line === '#EXT-X-DISCONTINUITY' ||
       line === '#EXT-X-GAP' ||
       line === '#EXT-X-I-FRAMES-ONLY' ||
       line.startsWith('#EXT-X-SKIP:')
@@ -234,6 +264,9 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
         parts.push({
           url,
           duration,
+          ...(epoch ? { epoch } : {}),
+          ...(epochBoundary ? { presentationOffset: elapsed } : {}),
+          ...(nextInit ? { initialization: nextInit } : {}),
           ...(key
             ? {
                 encryption: {
@@ -250,13 +283,16 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
             ? { range: byteRange(range, previous?.url === url ? previous.range : undefined) }
             : {}),
         });
+        elapsed += duration;
+        epochBoundary = false;
+        nextInit = undefined;
         duration = undefined;
         range = undefined;
         if (parts.length > maxMediaParts) throw new Error('Too many HLS segments.');
       }
     }
   }
-  if (pendingVariant || duration !== undefined || range)
+  if (pendingVariant || duration !== undefined || range || epochBoundary)
     throw new Error('The HLS playlist is incomplete.');
   if (
     variantGroups.some((group) => group && !audioChoices.some((choice) => choice.group === group))
@@ -275,7 +311,7 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
       audio: audioChoices,
     };
   if (sessionKey) throw new Error('HLS session keys belong in a master playlist.');
-  if (!ended)
+  if (!ended && !allowLive)
     throw new Error(
       'A live HLS stream needs a finite recording workflow. Select a completed VOD playlist.',
     );
@@ -290,5 +326,12 @@ export function parseHls(text: string, base: string, allowLocal = false): HlsMan
     parts,
     sequence,
     duration: total,
+    ...(!ended
+      ? {
+          live: true,
+          targetDuration:
+            targetDuration ?? Math.ceil(Math.max(...parts.map((part) => part.duration!))),
+        }
+      : {}),
   };
 }

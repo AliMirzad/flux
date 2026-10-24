@@ -1,4 +1,4 @@
-import { createSHA256 } from 'hash-wasm';
+import { withSHA256 } from '../hash';
 import type { EngineOptions } from '../ports';
 import { hashRegion, verifyStoredFile } from '../runner';
 import { completeBytes, parseContentRange } from '../segmentation/ranges';
@@ -6,12 +6,15 @@ import { transition } from '../../domain/state';
 import { BandwidthLimiter, SpeedMeter, checkAbort } from '../speed/control';
 import { HttpError, numberHeader } from '../network/http';
 import { fetchHls, mediaRequest, readMediaBody, mediaRetry } from './network';
-import type { HlsPart } from './hls';
 import type { MediaCheckpoint, MediaSource } from './types';
 import { inspectMp4Init, inspectMoof, type Box, type Mp4Track } from './mp4';
 import { createTransportWorker } from './transmux-client';
 import { maxTransportPartBytes } from './transport';
 import type { TransportPort } from './transmux';
+import { loadDash } from './dash-network';
+import { openRecording } from './live';
+import { openDashRecording } from './dash-live';
+import { assertCompatibleInitialization } from './initialization';
 import { decryptHlsPart, HlsCiphertext, loadHlsKey, maxEncryptedPartBytes } from './aes';
 import {
   combineMp4Init,
@@ -45,8 +48,20 @@ export async function runHlsDownload(options: EngineOptions) {
     job.connectionSpeeds = job.connections ? [job.speed] : [];
     progress(structuredClone(job));
   };
-  await options.checkAllowance?.(signal);
-  const playlist = await fetchHls(job.url, options);
+  if (!(media.recording?.finished && media.recording.snapshot && job.segments.length))
+    await options.checkAllowance?.(signal);
+  const recording = media.recording
+    ? await (media.kind === 'dash' ? openDashRecording : openRecording)(
+        job,
+        options,
+        options.finishRecording ?? (() => false),
+      )
+    : undefined;
+  const dash =
+    media.kind === 'dash' && !recording ? await loadDash(job.url, options, media.dash) : undefined;
+  if (dash) media.dash = dash.selection;
+  const offsets = recording?.offsets ?? dash?.offsets;
+  const playlist = dash?.playlist ?? recording?.playlist ?? (await fetchHls(job.url, options));
   if (playlist.manifest.kind !== 'media')
     throw new Error('Choose and review a media rendition from the HLS quality list first.');
   if (
@@ -55,25 +70,29 @@ export async function runHlsDownload(options: EngineOptions) {
     new URL(media.audioUrl).protocol === 'http:'
   )
     throw new Error('An insecure HLS audio address was blocked.');
-  const audio = media.audioUrl ? await fetchHls(media.audioUrl, options) : undefined;
+  const audio =
+    recording?.audio ??
+    dash?.audio ??
+    (media.audioUrl ? await fetchHls(media.audioUrl, options) : undefined);
   const paired = audio ? pairHlsPlans(playlist.manifest, audio.manifest) : undefined;
   const plan = paired ?? playlist.manifest;
   const steps: HlsStep[] = plan.init ? [plan.init, ...plan.parts] : plan.parts;
   const transport = plan.transport === 'mpegts';
-  const hash = await createSHA256();
-  hash.init();
-  const encrypted = steps.some((part) => part.encryption || part.companion?.encryption);
-  hash.update(
-    (paired ? 'flux-pair-v1\n' : '') +
-      (encrypted ? 'flux-aes-v1\n' : '') +
-      (transport ? 'flux-ts-v1\n' : '') +
-      playlist.url +
-      '\n' +
-      playlist.text,
-  );
-  if (audio) hash.update('\n' + audio.url + '\n' + audio.text);
-  const planHash = hash.digest('hex');
-  if (media.planHash && media.planHash !== planHash && job.segments.length)
+  const planHash = await withSHA256((hash) => {
+    const encrypted = steps.some((part) => part.encryption || part.companion?.encryption);
+    hash.update(
+      (dash ? 'flux-dash-v1\n' : '') +
+        (paired ? 'flux-pair-v1\n' : '') +
+        (encrypted ? 'flux-aes-v1\n' : '') +
+        (transport ? 'flux-ts-v1\n' : '') +
+        playlist.url +
+        '\n' +
+        playlist.text,
+    );
+    if (audio) hash.update('\n' + audio.url + '\n' + audio.text);
+    return hash.digest('hex');
+  });
+  if (!recording && media.planHash && media.planHash !== planHash && job.segments.length)
     throw new Error(
       'The HLS playlist changed. Start a new stream download to avoid mixing different media. Existing partial data is retained.',
     );
@@ -98,7 +117,9 @@ export async function runHlsDownload(options: EngineOptions) {
     const parts = steps;
     const completedParts = (count: number) =>
       paired
-        ? parts.slice(1, count).reduce((sum, part) => sum + (part.companion ? 2 : 1), 0)
+        ? parts
+            .slice(transport ? 0 : 1, count)
+            .reduce((sum, part) => sum + (part.companion ? 2 : 1), 0)
         : count;
     let previous = await records.load();
     if (job.segments.length > parts.length || previous.length !== job.segments.length)
@@ -107,9 +128,20 @@ export async function runHlsDownload(options: EngineOptions) {
       (sum, record) =>
         sum +
         (parts[record.index]?.encryption ? 16 : 0) +
-        (parts[record.index]?.companion?.encryption ? 16 : 0),
+        (parts[record.index]?.companion?.encryption ? 16 : 0) +
+        (parts[record.index]?.initialization?.encryption ? 16 : 0) +
+        (parts[record.index]?.companion?.initialization?.encryption ? 16 : 0),
       0,
     );
+    const initializationMatches = (
+      source: MediaSource | undefined,
+      part: HlsStep['initialization'],
+    ) =>
+      !!source === !!part &&
+      (!source ||
+        (source.url === part!.url &&
+          /^[a-f\d]{64}$/.test(source.sourceHash) &&
+          !!part!.encryption === !!source.keyHash));
     for (let index = 0, offset = 0; index < job.segments.length; index++) {
       const segment = job.segments[index]!,
         record = previous[index];
@@ -119,10 +151,15 @@ export async function runHlsDownload(options: EngineOptions) {
         !record ||
         record.index !== index ||
         record.url !== parts[index]!.url ||
+        !initializationMatches(record.initializationSource, parts[index]!.initialization) ||
         !!record.companion !== !!parts[index]!.companion ||
         (record.companion &&
           (record.companion.url !== parts[index]!.companion!.url ||
             !/^[a-f\d]{64}$/.test(record.companion.sourceHash) ||
+            !initializationMatches(
+              record.companion.initializationSource,
+              parts[index]!.companion!.initialization,
+            ) ||
             !!parts[index]!.companion!.encryption !== !!record.companion.keyHash)) ||
         ((transport || record.outputBytes !== undefined) &&
           record.outputBytes !== segment.end - segment.start + 1) ||
@@ -139,22 +176,39 @@ export async function runHlsDownload(options: EngineOptions) {
       await records.clear();
       previous = [];
       media.originSeconds = undefined;
+      media.currentEpoch = undefined;
+      media.epochOffset = 0;
       media.initializationBytes = undefined;
       media.initializationHash = undefined;
+      media.sourceInitializationHashes = {};
       media.trackEnds = {};
       media.sourceTrackIds = undefined;
       media.trackStarts = {};
     }
-    transition(job, 'DOWNLOADING', 'Downloading HLS media in playlist order');
+    transition(job, 'DOWNLOADING', 'Downloading media in presentation order');
     job.note = transport
       ? 'MPEG-TS HLS rendition. Parts are converted to MP4 and verified before saving.'
-      : 'MP4 HLS rendition. Parts are assembled in order and validated before saving.';
+      : 'MP4 media rendition. Parts are assembled in order and validated before saving.';
     await checkpoint(job);
 
     const writeBuffer = async (offset: number, data: Uint8Array) => {
       for (let at = 0; at < data.length; at += 262144) {
         checkAbort(signal);
         await store.write(offset + at, data.subarray(at, Math.min(at + 262144, data.length)));
+      }
+    };
+    const moveRegion = async (from: number, to: number, length: number) => {
+      if (to > from) {
+        for (let left = length; left > 0;) {
+          const count = Math.min(262144, left);
+          left -= count;
+          await writeBuffer(to + left, await store.read(from + left, count));
+        }
+      } else {
+        for (let at = 0; at < length; at += 262144) {
+          const count = Math.min(262144, length - at);
+          await writeBuffer(to + at, await store.read(from + at, count));
+        }
       }
     };
 
@@ -168,162 +222,191 @@ export async function runHlsDownload(options: EngineOptions) {
     };
 
     const receive = async (
-      part: HlsPart,
+      part: HlsStep,
       offset: number | null,
       maximum?: number,
       index = 0,
       allowanceBefore = 0,
     ): Promise<MediaCheckpoint> => {
-      const key =
-        part.encryption && offset !== null
-          ? await loadHlsKey(part.encryption, options, consumeKey)
-          : null;
-      const response = await mediaRequest(
-        part.url,
-        part.range ? { headers: { Range: `bytes=${part.range.start}-${part.range.end}` } } : {},
-        options,
-      );
-      let converter: TransportPort | null = null;
-      let plaintext: Uint8Array | null = null;
-      const ciphertext = new HlsCiphertext();
-      try {
-        if (transport) {
-          maximum = maxTransportPartBytes;
-          if (offset !== null)
-            converter = (options.transportFactory ?? createTransportWorker)(signal);
-        }
-        const plainMaximum = maximum ?? (part.encryption ? maxEncryptedPartBytes : undefined);
-        maximum = part.encryption ? (Math.floor(plainMaximum! / 16) + 1) * 16 : maximum;
-        const encoding = response.headers.get('content-encoding');
-        if (encoding && encoding !== 'identity')
-          throw new Error('Encoded media responses cannot be safely assembled.');
-        let expected = numberHeader(response.headers.get('content-length')),
-          fullSize = expected;
-        if (part.range) {
-          if (response.status !== 206)
-            throw new Error('The media server ignored a required byte range.');
-          const range = parseContentRange(response.headers.get('content-range'));
-          if (range.start !== part.range.start || range.end !== part.range.end)
-            throw new Error('The media server changed a required byte range.');
-          expected = range.end - range.start + 1;
-          fullSize = range.total;
-        } else if (response.status !== 200) throw new Error('Unexpected media response status.');
-        if (maximum !== undefined && expected !== null && expected > maximum)
-          throw new Error(
-            part.encryption
-              ? 'An encrypted HLS part exceeds its 16 MiB limit or initialization bound.'
-              : transport
-                ? 'A TS media part exceeds the 16 MiB converter limit.'
-                : 'Media initialization metadata exceeds 1 MiB.',
-          );
-        if (
-          settings.trafficLimit > 0 &&
-          (expected === null ||
-            expected + keyValidationBytes + (part.encryption ? 16 : 0) + allowanceBefore >
-              settings.trafficLimit)
-        )
-          throw new Error(
-            'This media part and its key verification need a known size within one complete download allowance. Increase or disable the allowance for this stream.',
-          );
-        const prepaid = expected !== null && !!options.reservePayload;
-        if (prepaid) await options.reservePayload!(expected!, signal);
-        if (offset !== null) await store.truncate(offset);
-        const sourceHash = await createSHA256();
-        sourceHash.init();
-        let count = 0;
-        job.connections = 1;
-        await readMediaBody(response, signal, async (bytes) => {
-          if (
-            (expected !== null && count + bytes.length > expected) ||
-            (maximum !== undefined && count + bytes.length > maximum) ||
-            !Number.isSafeInteger(count + bytes.length)
-          )
-            throw new Error('The media part exceeded its declared or safe size.');
-          await limiter.consume(bytes.length, signal);
-          await options.globalThrottle?.(bytes.length, signal);
-          if (!prepaid) await options.accountPayload?.(bytes.length, signal);
-          checkAbort(signal);
-          if (part.encryption && offset !== null) ciphertext.append(bytes);
-          else if (converter) await converter.push(bytes);
-          else if (offset !== null) await store.write(offset + count, bytes);
-          sourceHash.update(bytes);
-          count += bytes.length;
-          received += bytes.length;
-          meter.add(bytes.length);
-          job.downloaded =
-            durable + (offset !== null && !converter && !part.encryption ? count : 0);
-          emit();
-        });
-        if (expected !== null && count !== expected)
-          throw new TypeError('Media response was truncated.');
-        if (!count) throw new Error('The media part is empty.');
-        let outputBytes = count;
-        if (key && part.encryption && offset !== null) {
-          const decrypted = (plaintext = await decryptHlsPart(
-            ciphertext,
-            key.key,
-            part.encryption.iv,
-            signal,
-          ));
-          if (!decrypted.length || decrypted.length > plainMaximum!)
-            throw new Error('Decrypted HLS media exceeds its supported size.');
-          outputBytes = decrypted.length;
-          for (let at = 0; at < decrypted.length; at += 262144) {
-            checkAbort(signal);
-            const bytes = decrypted.subarray(at, Math.min(at + 262144, decrypted.length));
-            if (converter) await converter.push(bytes);
-            else await store.write(offset + at, bytes);
+      return withSHA256(async (sourceHash) => {
+        const key =
+          part.encryption && offset !== null
+            ? await loadHlsKey(part.encryption, options, consumeKey)
+            : null;
+        const response = await mediaRequest(
+          part.url,
+          part.range ? { headers: { Range: `bytes=${part.range.start}-${part.range.end}` } } : {},
+          options,
+        );
+        let converter: TransportPort | null = null;
+        let plaintext: Uint8Array | null = null;
+        const ciphertext = new HlsCiphertext();
+        try {
+          if (transport) {
+            maximum = maxTransportPartBytes;
+            if (offset !== null)
+              converter = (options.transportFactory ?? createTransportWorker)(
+                signal,
+                index > 0 && media.initializationBytes
+                  ? await store.read(0, media.initializationBytes)
+                  : undefined,
+                (part.epoch ?? 0) !== (media.currentEpoch ?? 0),
+              );
           }
-        }
-        if (converter && offset !== null) {
-          const output = await converter.finish(part.duration!, index);
-          const initHash = await createSHA256();
-          initHash.init();
-          initHash.update(output.initialization);
-          const fingerprint = initHash.digest('hex');
-          if (index === 0) {
-            media.initializationHash = fingerprint;
-            media.initializationBytes = output.initialization.length;
-          } else if (fingerprint !== media.initializationHash)
-            throw new Error('The TS codec initialization changed. Start a new stream download.');
-          outputBytes = 0;
-          for (const data of index === 0 ? [output.initialization, output.media] : [output.media]) {
-            for (let at = 0; at < data.length; at += 262144) {
+          const plainMaximum = maximum ?? (part.encryption ? maxEncryptedPartBytes : undefined);
+          maximum = part.encryption ? (Math.floor(plainMaximum! / 16) + 1) * 16 : maximum;
+          const encoding = response.headers.get('content-encoding');
+          if (encoding && encoding !== 'identity')
+            throw new Error('Encoded media responses cannot be safely assembled.');
+          let expected = numberHeader(response.headers.get('content-length')),
+            fullSize = expected;
+          if (part.range) {
+            if (response.status !== 206)
+              throw new Error('The media server ignored a required byte range.');
+            const range = parseContentRange(response.headers.get('content-range'));
+            if (range.start !== part.range.start || range.end !== part.range.end)
+              throw new Error('The media server changed a required byte range.');
+            expected = range.end - range.start + 1;
+            fullSize = range.total;
+          } else if (response.status !== 200) throw new Error('Unexpected media response status.');
+          if (maximum !== undefined && expected !== null && expected > maximum)
+            throw new Error(
+              part.encryption
+                ? 'An encrypted HLS part exceeds its 16 MiB limit or initialization bound.'
+                : transport
+                  ? 'A TS media part exceeds the 16 MiB converter limit.'
+                  : 'Media initialization metadata exceeds 1 MiB.',
+            );
+          if (
+            settings.trafficLimit > 0 &&
+            (expected === null ||
+              expected + keyValidationBytes + (part.encryption ? 16 : 0) + allowanceBefore >
+                settings.trafficLimit)
+          )
+            throw new Error(
+              'This media part and its key verification need a known size within one complete download allowance. Increase or disable the allowance for this stream.',
+            );
+          const prepaid = expected !== null && !!options.reservePayload;
+          if (prepaid) await options.reservePayload!(expected!, signal);
+          if (offset !== null) await store.truncate(offset);
+          let count = 0;
+          job.connections = 1;
+          await readMediaBody(response, signal, async (bytes) => {
+            if (
+              (expected !== null && count + bytes.length > expected) ||
+              (maximum !== undefined && count + bytes.length > maximum) ||
+              !Number.isSafeInteger(count + bytes.length)
+            )
+              throw new Error('The media part exceeded its declared or safe size.');
+            await limiter.consume(bytes.length, signal);
+            await options.globalThrottle?.(bytes.length, signal);
+            if (!prepaid) await options.accountPayload?.(bytes.length, signal);
+            checkAbort(signal);
+            if (part.encryption && offset !== null) ciphertext.append(bytes);
+            else if (converter) await converter.push(bytes);
+            else if (offset !== null) await store.write(offset + count, bytes);
+            sourceHash.update(bytes);
+            count += bytes.length;
+            received += bytes.length;
+            meter.add(bytes.length);
+            job.downloaded =
+              durable + (offset !== null && !converter && !part.encryption ? count : 0);
+            emit();
+          });
+          if (expected !== null && count !== expected)
+            throw new TypeError('Media response was truncated.');
+          if (!count) throw new Error('The media part is empty.');
+          let outputBytes = count,
+            initializationBytes: number | undefined;
+          if (key && part.encryption && offset !== null) {
+            const decrypted = (plaintext = await decryptHlsPart(
+              ciphertext,
+              key.key,
+              part.encryption.iv,
+              signal,
+            ));
+            if (!decrypted.length || decrypted.length > plainMaximum!)
+              throw new Error('Decrypted HLS media exceeds its supported size.');
+            outputBytes = decrypted.length;
+            for (let at = 0; at < decrypted.length; at += 262144) {
               checkAbort(signal);
-              const chunk = data.subarray(at, Math.min(data.length, at + 262144));
-              await store.write(offset + outputBytes, chunk);
-              outputBytes += chunk.length;
+              const bytes = decrypted.subarray(at, Math.min(at + 262144, decrypted.length));
+              if (converter) await converter.push(bytes);
+              else await store.write(offset + at, bytes);
             }
           }
-          job.downloaded = durable + outputBytes;
+          if (converter && offset !== null) {
+            const output = await converter.finish(part.duration!, index);
+            const fingerprint = await withSHA256((initHash) => {
+              initHash.update(output.initialization);
+              return initHash.digest('hex');
+            });
+            initializationBytes = output.initialization.length;
+            if (paired) {
+              const kind = part.track!;
+              const previous = media.sourceInitializationHashes?.[kind];
+              if (index && previous !== fingerprint)
+                throw new Error('The separate TS codec initialization changed.');
+              (media.sourceInitializationHashes ??= {})[kind] = fingerprint;
+            } else if (index === 0) {
+              media.initializationHash = fingerprint;
+              media.initializationBytes = output.initialization.length;
+            } else if (fingerprint !== media.initializationHash)
+              throw new Error('The TS codec initialization changed. Start a new stream download.');
+            outputBytes = 0;
+            for (const data of index === 0
+              ? [output.initialization, output.media]
+              : [output.media]) {
+              for (let at = 0; at < data.length; at += 262144) {
+                checkAbort(signal);
+                const chunk = data.subarray(at, Math.min(data.length, at + 262144));
+                await store.write(offset + outputBytes, chunk);
+                outputBytes += chunk.length;
+              }
+            }
+            job.downloaded = durable + outputBytes;
+          }
+          return {
+            index: 0,
+            url: part.url,
+            finalUrl: response.url || part.url,
+            etag: response.headers.get('etag'),
+            fullSize: fullSize ?? count,
+            bytes: count,
+            sourceHash: sourceHash.digest('hex'),
+            outputBytes,
+            ...(initializationBytes ? { initializationBytes } : {}),
+            ...(key ? { keyHash: key.hash } : {}),
+          };
+        } finally {
+          converter?.close();
+          plaintext?.fill(0);
+          ciphertext.clear();
+          job.connections = 0;
+          await response.body?.cancel().catch(() => undefined);
         }
-        return {
-          index: 0,
-          url: part.url,
-          finalUrl: response.url || part.url,
-          etag: response.headers.get('etag'),
-          fullSize: fullSize ?? count,
-          bytes: count,
-          sourceHash: sourceHash.digest('hex'),
-          outputBytes,
-          ...(key ? { keyHash: key.hash } : {}),
-        };
-      } finally {
-        converter?.close();
-        plaintext?.fill(0);
-        ciphertext.clear();
-        job.connections = 0;
-        await response.body?.cancel().catch(() => undefined);
-      }
+      });
     };
     // Strong validators permit a HEAD-only identity check. Otherwise compare every source byte.
     const retainedSources = previous.flatMap((record, index) => [
       { index, part: parts[index]!, record: record as MediaSource },
+      ...(record.initializationSource && parts[index]!.initialization
+        ? [{ index, part: parts[index]!.initialization!, record: record.initializationSource }]
+        : []),
       ...(record.companion
         ? [{ index, part: parts[index]!.companion!, record: record.companion }]
         : []),
+      ...(record.companion?.initializationSource && parts[index]!.companion?.initialization
+        ? [
+            {
+              index,
+              part: parts[index]!.companion!.initialization!,
+              record: record.companion.initializationSource,
+            },
+          ]
+        : []),
     ]);
-    for (const { index, part, record } of retainedSources) {
+    for (const { index, part, record } of recording ? [] : retainedSources) {
       if (part.encryption) {
         const key = await mediaRetry(
           () => loadHlsKey(part.encryption!, options, consumeKey),
@@ -357,7 +440,7 @@ export async function runHlsDownload(options: EngineOptions) {
             'This media server lacks stable validators. Disable the download allowance before resuming this stream so source verification cannot consume every window.',
           );
         const fresh = await mediaRetry(
-          () => receive(part, null, !transport && index === 0 ? 1048576 : undefined, index),
+          () => receive(part, null, part.duration === undefined ? 1048576 : undefined, index),
           options,
         );
         if (fresh.bytes !== record.bytes || fresh.sourceHash !== record.sourceHash)
@@ -409,7 +492,12 @@ export async function runHlsDownload(options: EngineOptions) {
       }
       return boxes;
     };
-    const validatePart = async (start: number, length: number, normalized = false) => {
+    const validatePart = async (
+      start: number,
+      length: number,
+      normalized = false,
+      part?: HlsStep,
+    ) => {
       const boxes = await readPartBoxes(start, length);
       const moofs = boxes.filter((box) => box.type === 'moof'),
         mdats = boxes.filter((box) => box.type === 'mdat');
@@ -417,19 +505,48 @@ export async function runHlsDownload(options: EngineOptions) {
         throw new Error('The HLS segment contains no MP4 fragments.');
       const ends = { ...media.trackEnds };
       const starts = { ...media.trackStarts };
-      if (!normalized && media.originSeconds === undefined) {
+      const sourceOffset = (kind: MediaKind) =>
+        (part?.track === kind || !part?.track
+          ? part?.sourceOffset
+          : part?.companion?.sourceOffset) ??
+        offsets?.[kind] ??
+        0;
+      if (
+        !normalized &&
+        (media.originSeconds === undefined || (part?.epoch ?? 0) !== (media.currentEpoch ?? 0))
+      ) {
+        const restartingEpoch = media.originSeconds !== undefined;
         const first = new Map<number, number>();
         for (const moof of moofs) {
           if (moof.size > 1048576) throw new Error('MP4 fragment metadata exceeds 1 MiB.');
           for (const entry of inspectMoof(await store.read(moof.start, moof.size), tracks))
-            if (!first.has(entry.id)) first.set(entry.id, entry.base);
+            if (!first.has(entry.id)) {
+              const track = tracks.find((item) => item.id === entry.id)!;
+              first.set(
+                entry.id,
+                entry.base - Math.round(sourceOffset(track.kind) * track.timescale),
+              );
+            }
           if (first.size === tracks.length) break;
         }
         if (first.size !== tracks.length)
           throw new Error('The first media part must initialize all selected tracks.');
-        media.originSeconds = Math.min(
-          ...tracks.map((track) => first.get(track.id)! / track.timescale),
-        );
+        const video = tracks.find((track) => track.kind === 'video');
+        media.originSeconds =
+          restartingEpoch && video
+            ? first.get(video.id)! / video.timescale
+            : Math.min(...tracks.map((track) => first.get(track.id)! / track.timescale));
+        media.currentEpoch = part?.epoch ?? 0;
+        media.epochOffset = restartingEpoch
+          ? Math.max(
+              part?.presentationOffset ?? 0,
+              ...tracks.map(
+                (track) =>
+                  (ends[track.id] ?? 0) / track.timescale -
+                  (first.get(track.id)! / track.timescale - media.originSeconds!),
+              ),
+            )
+          : 0;
       }
       for (const moof of moofs) {
         if (moof.size > 1048576) throw new Error('MP4 fragment metadata exceeds 1 MiB.');
@@ -447,7 +564,12 @@ export async function runHlsDownload(options: EngineOptions) {
             throw new Error('MP4 sample data lies outside its media payload.');
           payloads.push({ start: first, end: last });
           let base =
-            entry.base - (normalized ? 0 : Math.floor(media.originSeconds! * track.timescale));
+            entry.base -
+            (normalized
+              ? 0
+              : Math.floor(media.originSeconds! * track.timescale) +
+                Math.round(sourceOffset(track.kind) * track.timescale)) +
+            (normalized ? 0 : Math.round((media.epochOffset ?? 0) * track.timescale));
           if (transport && !normalized) {
             const wrap = (2 ** 33 / 90000) * track.timescale;
             const cycles = Math.max(0, Math.round(((ends[entry.id] ?? 0) - base) / wrap));
@@ -455,15 +577,21 @@ export async function runHlsDownload(options: EngineOptions) {
             base += Math.round(cycles * wrap);
           }
           // Conversion from the 90 kHz TS clock can round adjacent AAC starts
-          // across at most two audio samples. Keep samples contiguous in that case.
+          // and AAC packetization can differ by sub-millisecond rounding.
+          // Keep encoded samples contiguous only within that bounded jitter.
           if (
             transport &&
             track.kind === 'audio' &&
             base < (ends[entry.id] ?? 0) &&
-            (ends[entry.id] ?? 0) - base <= 2
+            (ends[entry.id] ?? 0) - base <= Math.max(2, Math.floor(track.timescale / 1000))
           )
             base = ends[entry.id]!;
-          if (base < 0 || base < (ends[entry.id] ?? 0) - 1)
+          if (
+            !Number.isSafeInteger(base) ||
+            base < 0 ||
+            base < (ends[entry.id] ?? 0) - 1 ||
+            (entry.timeVersion === 0 && base > 0xffffffff)
+          )
             throw new Error('MP4 track timestamps overlap or require a discontinuity remux.');
           if (starts[entry.id] === undefined) starts[entry.id] = base / track.timescale;
           ends[entry.id] = base + entry.duration;
@@ -530,31 +658,112 @@ export async function runHlsDownload(options: EngineOptions) {
         validateTiming(parts[index]!);
       }
     }
-    for (let index = job.segments.length; index < parts.length; index++) {
+    let recordedSeconds = paired
+      ? Math.min(...tracks.map((track) => (media.trackEnds?.[track.id] ?? 0) / track.timescale))
+      : parts
+          .slice(transport ? 0 : 1, job.segments.length)
+          .reduce((sum, part) => sum + (part.duration ?? 0), 0);
+    for (let index = job.segments.length; ; index++) {
+      if (
+        recording &&
+        index > (transport ? 0 : 1) &&
+        (options.finishRecording?.() ||
+          media.recording!.finished ||
+          recordedSeconds >= media.recording!.maxSeconds)
+      )
+        break;
+      if (index >= parts.length) {
+        if (!recording) break;
+        const count = recording.plan.parts.length + (recording.audio?.manifest.parts.length ?? 0);
+        while (await recording.advance()) {
+          if (
+            recording.plan.parts.length + (recording.audio?.manifest.parts.length ?? 0) > count &&
+            recording.ready()
+          )
+            break;
+        }
+        if (
+          recording.plan.parts.length + (recording.audio?.manifest.parts.length ?? 0) === count ||
+          !recording.ready()
+        )
+          break;
+        const next = recording.audio
+          ? pairHlsPlans(recording.plan, recording.audio.manifest)
+          : recording.plan;
+        const nextParts: HlsStep[] = next.init ? [next.init, ...next.parts] : next.parts;
+        if (parts !== nextParts) {
+          for (let i = 0; i < parts.length; i++)
+            if (JSON.stringify(parts[i]) !== JSON.stringify(nextParts[i]))
+              throw new Error(
+                'The live media order changed. Finish retained media before continuing.',
+              );
+          parts.push(...nextParts.slice(parts.length));
+        }
+        plan.duration = next.duration;
+        if (paired && 'sourceParts' in next) paired.sourceParts = next.sourceParts;
+        media.parts = paired?.sourceParts ?? recording.plan.parts.length;
+        media.duration = next.duration;
+        await checkpoint(job);
+      }
       checkAbort(signal);
       const part = parts[index]!;
       const oldMedia = structuredClone(media),
         oldSegments = job.segments;
       try {
+        const initializationSources: { primary?: MediaSource; companion?: MediaSource } = {};
+        let initializationPayload = 0;
+        for (const [key, source] of [
+          ['primary', part],
+          ['companion', part.companion],
+        ] as const) {
+          if (!source?.initialization) continue;
+          const incoming = await mediaRetry(
+            () => receive(source.initialization!, durable, 1048576, index, initializationPayload),
+            options,
+          );
+          assertCompatibleInitialization(
+            await store.read(0, initializationLength()),
+            await store.read(durable, incoming.outputBytes ?? incoming.bytes),
+            source.track,
+          );
+          if (paired && source.track) {
+            const incomingTrack = inspectMp4Init(
+              await store.read(durable, incoming.outputBytes ?? incoming.bytes),
+            )[0]!;
+            media.sourceTrackIds![source.track] = incomingTrack.id;
+          }
+          await store.truncate(durable);
+          initializationSources[key] = incoming;
+          initializationPayload += incoming.bytes + (source.initialization.encryption ? 16 : 0);
+        }
         const record = await mediaRetry(
-          () => receive(part, durable, !transport && index === 0 ? 1048576 : undefined, index),
+          () =>
+            receive(
+              part,
+              durable,
+              !transport && index === 0 ? 1048576 : undefined,
+              index,
+              initializationPayload,
+            ),
           options,
           () => {
             job.retries++;
             emit(true);
           },
         );
+        if (initializationSources.primary)
+          record.initializationSource = initializationSources.primary;
         let outputBytes = record.outputBytes ?? record.bytes;
-        const primaryBytes = outputBytes;
+        let primaryBytes = outputBytes;
         if (part.companion) {
           const second = await mediaRetry(
             () =>
               receive(
                 part.companion!,
                 durable + primaryBytes,
-                index === 0 ? 1048576 : undefined,
+                index === 0 && !transport ? 1048576 : undefined,
                 index,
-                record.bytes + (part.encryption ? 16 : 0),
+                initializationPayload + record.bytes + (part.encryption ? 16 : 0),
               ),
             options,
             () => {
@@ -564,15 +773,39 @@ export async function runHlsDownload(options: EngineOptions) {
           );
           const { index: unusedIndex, outputBytes: secondBytes, ...identity } = second;
           record.companion = identity;
+          if (initializationSources.companion)
+            record.companion.initializationSource = initializationSources.companion;
           outputBytes += secondBytes ?? second.bytes;
           if (index === 0) {
             const combined = combineMp4Init(
-              await store.read(durable, primaryBytes),
-              await store.read(durable + primaryBytes, secondBytes ?? second.bytes),
+              await store.read(durable, transport ? record.initializationBytes! : primaryBytes),
+              await store.read(
+                durable + primaryBytes,
+                transport ? second.initializationBytes! : (secondBytes ?? second.bytes),
+              ),
             );
             media.sourceTrackIds = combined.sourceIds;
-            outputBytes = combined.initialization.length;
-            await store.truncate(durable);
+            if (transport) {
+              const videoBytes = primaryBytes - record.initializationBytes!;
+              const audioBytes = (secondBytes ?? second.bytes) - second.initializationBytes!;
+              await moveRegion(
+                durable + record.initializationBytes!,
+                durable + combined.initialization.length,
+                videoBytes,
+              );
+              await moveRegion(
+                durable + primaryBytes + second.initializationBytes!,
+                durable + combined.initialization.length + videoBytes,
+                audioBytes,
+              );
+              media.initializationBytes = combined.initialization.length;
+              outputBytes = combined.initialization.length + videoBytes + audioBytes;
+              primaryBytes = videoBytes;
+              await store.truncate(durable + outputBytes);
+            } else {
+              outputBytes = combined.initialization.length;
+              await store.truncate(durable);
+            }
             await writeBuffer(durable, combined.initialization);
           }
         }
@@ -584,17 +817,17 @@ export async function runHlsDownload(options: EngineOptions) {
         if (transport || index > 0) {
           const prefix = transport && index === 0 ? media.initializationBytes! : 0;
           if (paired) {
-            const ordinal = await remapPart(durable, primaryBytes, part.track!, index, 0);
+            const ordinal = await remapPart(durable + prefix, primaryBytes, part.track!, index, 0);
             if (part.companion)
               await remapPart(
-                durable + primaryBytes,
-                outputBytes - primaryBytes,
+                durable + prefix + primaryBytes,
+                outputBytes - prefix - primaryBytes,
                 part.companion.track,
                 index,
                 ordinal,
               );
           }
-          await validatePart(durable + prefix, outputBytes - prefix);
+          await validatePart(durable + prefix, outputBytes - prefix, false, part);
           validateTiming(part);
         }
         const segment = {
@@ -607,6 +840,9 @@ export async function runHlsDownload(options: EngineOptions) {
         media.completed = completedParts(job.segments.length);
         job.downloaded = durable + outputBytes;
         await records.save(job, { ...record, index });
+        recordedSeconds = paired
+          ? Math.min(...tracks.map((track) => (media.trackEnds?.[track.id] ?? 0) / track.timescale))
+          : recordedSeconds + (part.duration ?? 0);
         durable += outputBytes;
         emit(true);
       } catch (error) {
@@ -616,6 +852,14 @@ export async function runHlsDownload(options: EngineOptions) {
         job.downloaded = durable;
         throw error;
       }
+    }
+    if (recording) {
+      const finished = recording.finish(parts.slice(transport ? 0 : 1, job.segments.length));
+      plan.duration = finished.duration;
+      media.recording!.finished = true;
+      recording.save();
+      media.parts = finished.parts;
+      media.duration = finished.duration;
     }
     const end = Math.max(
       ...tracks.map((track) => (media.trackEnds?.[track.id] ?? 0) / track.timescale),
@@ -631,7 +875,7 @@ export async function runHlsDownload(options: EngineOptions) {
       job.sha256 = null;
       throw new Error('The assembled media SHA-256 does not match the expected checksum.');
     }
-    transition(job, 'ASSEMBLING', 'HLS media assembled and verified; ready to save');
+    transition(job, 'ASSEMBLING', 'Media assembled and verified; ready to save');
     job.speed = 0;
     job.connections = 0;
     emit(true);

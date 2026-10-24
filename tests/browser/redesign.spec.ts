@@ -96,7 +96,6 @@ test.afterAll(async () => {
   await fixture?.close();
   if (root) await rm(root, { recursive: true, force: true });
 });
-
 test('all redesigned flows in both themes, with real settings persistence and paused downloads', async () => {
   for (const theme of ['light', 'dark']) {
     await settings();
@@ -392,4 +391,33 @@ test('sidebar fits short windows and download details separates overview from ed
     await page.setViewportSize({ width: 1280, height: 768 });
   }
   expect(errors).toEqual([]);
+});
+
+test('compact rows and visible download fields persist without hiding names or actions', async () => {
+  await home();
+  await page.getByText('View options', { exact: true }).click();
+  await page.getByLabel('Compact rows', { exact: true }).check();
+  await page.getByLabel('Website and category', { exact: true }).uncheck();
+  await page.getByLabel('Transferred size', { exact: true }).uncheck();
+  await expect(page.getByRole('button', { name: 'redesign-check.zip', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Details for redesign-check.zip', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.downloads-section')).toHaveAttribute('data-compact', 'true');
+  await expect(page.locator('.downloads-section')).toHaveAttribute('data-metadata', 'false');
+  await expect(page.locator('.downloads-section')).toHaveAttribute('data-size', 'false');
+  await page.getByText('View options', { exact: true }).click();
+  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+  await page.getByText('View options', { exact: true }).click();
+  await expect(page.locator('.downloads-section')).toHaveAttribute('data-compact', 'false');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  for (const theme of ['light', 'dark']) {
+    await settings();
+    await page.locator('select[name="theme"]').selectOption(theme);
+    await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+    await home();
+    await fits();
+    await shot(`store-manager-${theme}`);
+  }
 });

@@ -1,0 +1,54 @@
+name: Release acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      capacity:
+        description: Run real 1, 5 and 10 GiB download/export acceptance
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Locate installed Chrome
+        shell: pwsh
+        run: |
+          $chrome = if ($IsWindows) { 'C:\Program Files\Google\Chrome\Application\chrome.exe' } else { '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' }
+          if (-not (Test-Path -LiteralPath $chrome)) { throw 'Stable Chrome is required for this acceptance run.' }
+          "CHROME_PATH=$chrome" >> $env:GITHUB_ENV
+          "FLUX_TEST_ROOT=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+      - run: npm run check
+      - run: npm run test:browser -- --output=test-results-acceptance
+      - run: npm run benchmark
+      - if: ${{ inputs.capacity }}
+        run: npm run test:capacity
+        env:
+          FLUX_CAPACITY_NATIVE: '1'
+      - run: npm run release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-${{ matrix.os }}
+          path: |
+            test-results-acceptance/
+            playwright-report/
+            docs/benchmark-v1-*
+            docs/capacity-v1.json
+            docs/capacity-native-v1.json
+            releases/flux-1.0.0-rc.1.zip*

@@ -18,6 +18,7 @@ export interface EngineOptions {
   signal: AbortSignal;
   checkpoint(job: DownloadJob): Promise<void>;
   progress(job: DownloadJob): void;
+  finishRecording?: () => boolean;
   fetcher?: typeof fetch;
   allowLocalForTests?: boolean;
   acquireHost?: (host: string, signal: AbortSignal) => Promise<() => void>;
@@ -26,7 +27,11 @@ export interface EngineOptions {
   reservePayload?: (bytes: number, signal: AbortSignal) => Promise<void>;
   accountPayload?: (bytes: number, signal: AbortSignal) => Promise<void>;
   redirectPolicy?: RedirectPolicy;
-  transportFactory?: (signal: AbortSignal) => TransportPort;
+  transportFactory?: (
+    signal: AbortSignal,
+    initialization?: Uint8Array,
+    discontinuity?: boolean,
+  ) => TransportPort;
   mediaCheckpoints?: {
     load(): Promise<MediaCheckpoint[]>;
     save(job: DownloadJob, record: MediaCheckpoint): Promise<void>;

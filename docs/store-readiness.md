@@ -1,6 +1,6 @@
 # Chrome Web Store readiness
 
-Applies to 0.10.0. This is a release gate, not a claim of approval. The local package may be evaluated unpacked before submission. Store review and publisher actions are external steps.
+Applies to 1.0.0-rc.1. This is a release gate, not a claim of approval. The local package may be evaluated unpacked before submission. Store review and publisher actions are external steps.
 
 ## Required before submission
 
@@ -20,6 +20,7 @@ Applies to 0.10.0. This is a release gate, not a claim of approval. The local pa
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | contextMenus                     | Add the user-invoked Download with Flux action.                                                                                                                                     |
 | storage                          | Persist extension-level settings or integration state; large content belongs in OPFS.                                                                                               |
+| unlimitedStorage                 | Exempt extension OPFS staging from default quota/eviction so verified multi-gigabyte transfers can complete. No arbitrary destination access; physical space remains necessary.     |
 | alarms                           | Best-effort scheduling prompts. Confirm no keepalive loop.                                                                                                                          |
 | downloads                        | With opt-in capture, pause/probe/durably queue eligible public GETs before canceling Chrome's transfer; preserve unsupported requests. Provide explicit browser fallback.           |
 | webRequest                       | Read-only request method/initiator and own-request redirect metadata; bounded memory, no credential headers or request bodies, no blocking listener.                                |
@@ -28,4 +29,6 @@ Applies to 0.10.0. This is a release gate, not a claim of approval. The local pa
 | optional HTTP(S) host patterns   | Manual addition requests a destination origin; automatic capture explicitly requests HTTP/HTTPS website access once. Explain scope before granting and allow revocation/exclusions. |
 | notifications (optional)         | Optional ready-to-save notices; avoid leaking signed URLs.                                                                                                                          |
 
-The current manifest does not include unlimitedStorage, cookies, debugger, nativeMessaging, webRequestBlocking, or offscreen. Reconcile this worksheet again if permissions change. The project should not be described as production ready until critical acceptance gates have actual recorded passes and known security issues have been addressed.
+The current manifest does not include cookies, debugger, nativeMessaging, webRequestBlocking, or offscreen. Reconcile this worksheet again if permissions change. The project should not be described as production ready until critical acceptance gates have actual recorded passes and known security issues have been addressed.
+
+Local release evidence: [v1 acceptance](release-acceptance-v1.md). Manual platform/consent gates: [checklist](release-manual-checks.md). Prepared listing: [store listing](store-listing.md). Publisher identity, contact, hosted privacy-policy URL and store submission remain owner actions; no submission has been made.

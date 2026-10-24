@@ -7,10 +7,12 @@ import { Modal } from '../components/Modal';
 export function BatchDownloads({
   manager,
   initialText = '',
+  sessionOrigin,
   onClose,
 }: {
   manager: ManagerAPI;
   initialText?: string;
+  sessionOrigin?: string;
   onClose: () => void;
 }) {
   const [text, setText] = useState(initialText);
@@ -50,7 +52,12 @@ export function BatchDownloads({
     setBusy(true);
     try {
       const outcome = await manager.addBatch(
-        selected.map((item) => ({ ...item, queueId, startPaused: paused })),
+        selected.map((item) => ({
+          ...item,
+          queueId,
+          startPaused: paused,
+          useBrowserCookies: !!sessionOrigin && new URL(item.url).origin === sessionOrigin,
+        })),
       );
       setResult(`${outcome.added} added; ${outcome.skipped} already queued.`);
       setText('');
@@ -63,6 +70,12 @@ export function BatchDownloads({
   return (
     <Modal title="Add multiple downloads" onClose={onClose} wide>
       <div className="form-stack batch-dialog">
+        {sessionOrigin && (
+          <p className="small muted">
+            Browser session authorized for selected downloads from {sessionOrigin}. Other origins
+            receive no session credentials.
+          </p>
+        )}
         <div className="dialog-intro">
           <span className="intro-icon">
             <Link2 size={22} />

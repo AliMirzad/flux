@@ -235,6 +235,14 @@ export function Details({
             )}
           </div>
           <div className="metadata">
+            {job.media?.dash && (
+              <span>
+                Selected DASH tracks{' '}
+                <strong>
+                  {job.media.dash.videoId} / {job.media.dash.audioId || 'embedded audio'}
+                </strong>
+              </span>
+            )}
             {job.media?.audioUrl && (
               <>
                 <label>

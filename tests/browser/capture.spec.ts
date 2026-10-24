@@ -305,20 +305,24 @@ test('original authenticated transfers pause, survive manager closure, resume fr
     .poll(async () => (await jobs()).find((job) => job.url === url)?.engine)
     .toBe('browser');
   const job = (await jobs()).find((job) => job.url === url)!;
-  await manager.getByRole('button', { name: `Pause ${job.filename}`, exact: true }).click();
+  await manager
+    .locator(`[data-job-id="${job.id}"]`)
+    .getByRole('button', { name: /^Pause / })
+    .click();
   await expect
     .poll(async () => (await browserItems()).find((item) => item.id === job.browser!.id)?.paused)
     .toBe(true);
   await manager.close();
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${id}/popup.html`);
-  await expect(
-    popup.getByRole('button', { name: `Resume ${job.filename}`, exact: true }),
-  ).toBeVisible();
+  // Chrome may finish determining its native filename after pause. The original
+  // linked transfer remains the sole resumable item even when that name changes.
+  const resumeButton = popup.getByRole('button', { name: /^Resume / });
+  await expect(resumeButton).toHaveCount(1);
   expect(
     (await popup.evaluate((id) => chrome.downloads.search({ id }), job.browser!.id))[0]?.paused,
   ).toBe(true);
-  await popup.getByRole('button', { name: `Resume ${job.filename}`, exact: true }).click();
+  await resumeButton.click();
   await expect
     .poll(
       async () =>

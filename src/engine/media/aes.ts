@@ -1,4 +1,3 @@
-import { createSHA256 } from 'hash-wasm';
 import type { HlsEncryption } from './hls';
 import { mediaRequest, readMediaBody, type MediaNetwork } from './network';
 import { numberHeader } from '../network/http';
@@ -69,12 +68,14 @@ export async function loadHlsKey(
       at += chunk.length;
     });
     if (at !== 16) throw new Error('The HLS AES-128 key is truncated.');
-    const hash = await createSHA256();
-    hash.init();
-    hash.update(bytes);
+    // Keys have a fixed 16-byte size; keep raw key input out of reusable WASM scratch memory.
+    const fingerprint = Array.from(
+      new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)),
+      (byte) => byte.toString(16).padStart(2, '0'),
+    ).join('');
     const key = await crypto.subtle.importKey('raw', bytes, 'AES-CBC', false, ['decrypt']);
     checkAbort(options.signal);
-    return { key, hash: hash.digest('hex') };
+    return { key, hash: fingerprint };
   } finally {
     bytes.fill(0);
     await response.body?.cancel().catch(() => undefined);

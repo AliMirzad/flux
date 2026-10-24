@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0-rc.1",
+  "zipSha256": "fcd8d45d88ac37bd500becab58dcbc9d10178c5414268db0afc6ec06a8ec36d0",
+  "files": {
+    "THIRD_PARTY_NOTICES.txt": "84205744d858151df193041a4a19e909f11cf0e4e2953e56f54ff9dc8718babd",
+    "assets/chevron-down-j7VpOjgs.svg": "a486ec5ead75feebcaccf046fffbf02e6845ee8ab9f0ed6f89a5edde4736e98f",
+    "assets/manager-Bvlin76s.js": "96ab838f5b3bdb460c7e3997f8e0b4d245043e441ff57fd1654599ed0a92e6cf",
+    "assets/popup-D2SDm41j.js": "fd61dd94bb2c61444cd3f5542c52291ffef38b2dda2e2eb2ad99f97cab792a3b",
+    "assets/queue-status-D471PFEE.css": "d5b99e1c59fbab68446768d9e11e444aa18eaf99c5f6264ee0727ded64ea68b4",
+    "assets/queue-status-DtMZhyAl.js": "4ccbd04edd69ea29bd914462d0bac82cd17514a291ad3d62c2e08778dd7987e8",
+    "assets/transmux-worker-D_pl-Abj.js": "d487577003d0c250879b438eb4e430338e7da2f57c482f1d5ad382cff4903506",
+    "assets/worker-CaogL3vh.js": "d1516e2595ca14af8826cd3f9343c2286a222606a8461be37173d43646cf677a",
+    "background.js": "28215fa46f4341c9efc32694a4e7fe31d429b981ec52013922f6346ae3888a88",
+    "content.js": "1d56d74019e714b6ea6f04177f86edf0277a37984015ba8f13183cf683361df4",
+    "icon128.png": "cab0d2b3421b7f3636c8eb7b4ad232bfcbde94e22eff806af99b3a430dc07258",
+    "icon16.png": "20f86862a4129b005a9fe23be64a9370eb80f26163d55dc9ce2478c00ceb57ee",
+    "icon48.png": "65909854fe48e1a6c231ff1ba3fc40a7bebb91ebb90e86988a017966e1080298",
+    "manager.html": "c3284a1b46defbeaf14881bf132f4bb4d5e9c07d34d2c597b23693f1de4aa6a9",
+    "manifest.json": "030403ef9ad9ad85e8d859da8a2fdecbdf9e640711b61ba3b353432cf34c32a2",
+    "popup.html": "10d1d542a4ecda73ebfcd1c89b7f1e61f9b04e47d25482e464de22b2b0cae065"
+  }
+}

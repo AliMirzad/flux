@@ -1,0 +1,14 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXTINF:0.5104666666666666,
+continuous-0.ts
+#EXTINF:0.5399333333333334,
+continuous-1.ts
+#EXTINF:1.079767,
+continuous-2.ts
+#EXTINF:1.0501,
+continuous-3.ts
+#EXTINF:0.902933,
+continuous-4.ts
+#EXT-X-ENDLIST

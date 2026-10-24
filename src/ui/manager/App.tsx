@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { DisplayOptions, useDisplayOptions } from './DisplayOptions';
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -50,6 +51,7 @@ import { Details } from './Details';
 import { Settings } from '../settings/Settings';
 import { captureOrigins } from '../../shared/capture';
 import { BatchDownloads } from './BatchDownloads';
+import { CrawlSite } from './CrawlSite';
 import { Queues } from './Queues';
 import { queueStatus } from '../components/queue-status';
 import { SaveSetup } from './SaveSetup';
@@ -162,11 +164,13 @@ function JobCard({
           {browser && <span className="browser-transport">Original browser transfer</span>}
           {job.media && (
             <span className="browser-transport">
-              HLS ·{' '}
+              {job.media.kind.toUpperCase()} ·{' '}
               {Math.max(
                 0,
                 (job.media.completed ?? 0) -
-                  (job.media.audioUrl || job.media.transport === 'mpegts' ? 0 : 1),
+                  (job.media.audioUrl || job.media.dash?.audioId || job.media.transport === 'mpegts'
+                    ? 0
+                    : 1),
               )}
               /{job.media.parts ?? '?'} media parts
               {job.media.audioLabel && <> · {job.media.audioLabel}</>}
@@ -211,7 +215,7 @@ function JobCard({
           <span style={{ width: `${percent(job)}%` }} />
         </div>
         <div className="download-bottom">
-          <span>
+          <span className="download-size">
             {bytes(job.downloaded)} <span className="muted">/ {bytes(job.total)}</span>
           </span>
           <div>
@@ -221,9 +225,9 @@ function JobCard({
                   <ArrowDown size={12} />
                   {bytes(job.speed)}/s
                 </span>
-                <span className="muted">{eta(job)} left</span>
+                <span className="muted transfer-eta">{eta(job)} left</span>
                 {!browser && (
-                  <span className="muted">
+                  <span className="muted transfer-connections">
                     {job.connections} connection{job.connections === 1 ? '' : 's'}
                   </span>
                 )}
@@ -247,6 +251,18 @@ function JobCard({
         </div>
       </div>
       <div className="row-actions">
+        {job.media?.recording &&
+          !job.media.recording.finished &&
+          job.segments.length > (job.media.transport === 'mpegts' ? 0 : 1) &&
+          ['DOWNLOADING', 'PAUSED', 'FAILED', 'WAITING_FOR_NETWORK'].includes(job.state) && (
+            <button
+              className="button secondary"
+              onClick={() => action('finish-recording')}
+              aria-label={`Finish recording ${job.filename}`}
+            >
+              Finish recording
+            </button>
+          )}
         {retryScheduled && (
           <button
             className="icon-button"
@@ -364,16 +380,21 @@ export function App() {
   const [error, setError] = useState(
     new URLSearchParams(location.hash.slice(1)).get('error') ?? '',
   );
-  const [media, setMedia] = useState<{ url: string; filename: string; media?: 'hls' }[] | null>(
-    null,
-  );
-  const [initialMedia, setInitialMedia] = useState<'hls' | undefined>();
+  const [media, setMedia] = useState<
+    { url: string; filename: string; media?: 'hls' | 'dash' }[] | null
+  >(null);
+  const [initialMedia, setInitialMedia] = useState<'hls' | 'dash' | undefined>();
   const [mediaBusy, setMediaBusy] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const display = useDisplayOptions();
   const [offers, setOffers] = useState<NativeOffer[]>([]);
   const [captureAccess, setCaptureAccess] = useState(false);
   const [batch, setBatch] = useState<string | null>(null);
+  const [crawler, setCrawler] = useState(false);
+  const [crawlBatch, setCrawlBatch] = useState<{ text: string; sessionOrigin?: string } | null>(
+    null,
+  );
   const [queuesOpen, setQueuesOpen] = useState(false);
   const [queueFilter, setQueueFilter] = useState('all');
   const [selection, setSelection] = useState(new Set<string>());
@@ -661,7 +682,9 @@ export function App() {
           </button>
           <div className="sidebar-version">
             <span>Flux for Chrome</span>
-            <span>v0.10.0</span>
+            <span>
+              v{chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}
+            </span>
           </div>
           <p className="sidebar-credit">
             created by <strong>Vexor</strong>
@@ -871,6 +894,9 @@ export function App() {
                 >
                   <FileText size={17} /> Grab page links
                 </button>
+                <button className="button secondary" onClick={() => setCrawler(true)}>
+                  <Link2 size={17} /> Crawl website
+                </button>
                 <button
                   className="button secondary"
                   disabled={!jobs.length}
@@ -961,13 +987,22 @@ export function App() {
                   </span>
                 </div>
               </section>
-              <section className="downloads-section">
+              <section
+                className="downloads-section"
+                data-compact={display.value.compact}
+                data-metadata={display.value.metadata}
+                data-size={display.value.size}
+                data-speed={display.value.speed}
+                data-eta={display.value.eta}
+                data-connections={display.value.connections}
+              >
                 <div className="section-heading">
                   <div className="downloads-title">
                     <h2>{view === 'all' ? 'Your downloads' : title}</h2>
                     <span className="count-badge">{visible.length}</span>
                   </div>
                   <div className="toolbar">
+                    <DisplayOptions {...display} />
                     <button
                       className="button secondary tool"
                       onClick={() => run(() => manager.pauseAll())}
@@ -1240,6 +1275,24 @@ export function App() {
       {batch !== null && (
         <BatchDownloads manager={manager} initialText={batch} onClose={() => setBatch(null)} />
       )}
+      {crawler && (
+        <CrawlSite
+          manager={manager}
+          onClose={() => setCrawler(false)}
+          onReview={(text, sessionOrigin) => {
+            setCrawler(false);
+            setCrawlBatch({ text, sessionOrigin });
+          }}
+        />
+      )}
+      {crawlBatch && (
+        <BatchDownloads
+          manager={manager}
+          initialText={crawlBatch.text}
+          sessionOrigin={crawlBatch.sessionOrigin}
+          onClose={() => setCrawlBatch(null)}
+        />
+      )}
       {queuesOpen && <Queues manager={manager} onClose={() => setQueuesOpen(false)} />}
       {selectedJob && (
         <Details job={selectedJob} manager={manager} onClose={() => setSelected(null)} run={run} />
@@ -1262,9 +1315,9 @@ export function App() {
                     className="button secondary"
                     onClick={() =>
                       run(async () => {
-                        if (item.media === 'hls') {
+                        if (item.media) {
                           setInitialUrl(item.url);
-                          setInitialMedia('hls');
+                          setInitialMedia(item.media);
                           setMedia(null);
                           setAdd(true);
                           return;
@@ -1274,7 +1327,7 @@ export function App() {
                       })
                     }
                   >
-                    <Plus size={15} /> {item.media === 'hls' ? 'Review HLS' : 'Add'}
+                    <Plus size={15} /> {item.media ? 'Review ' + item.media.toUpperCase() : 'Add'}
                   </button>
                 </div>
               ))

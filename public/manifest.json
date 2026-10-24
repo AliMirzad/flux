@@ -1,11 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Flux — Download Manager",
-  "version": "0.10.0",
+  "version": "1.0.0",
+  "version_name": "1.0.0-rc.1",
   "minimum_chrome_version": "120",
   "description": "Local, resumable downloads with verified parallel ranges. Keep the manager open during transfers.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "downloads",
     "contextMenus",
     "alarms",

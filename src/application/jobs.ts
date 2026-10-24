@@ -6,8 +6,8 @@ import {
 } from '../domain/model';
 import { filenameFromHeaders, categoryOf, sanitizeFilename } from '../shared/files';
 import { validateUrl } from '../shared/security';
-export const downloadIdentity = (url: string, audioUrl?: string) =>
-  JSON.stringify([url, audioUrl ?? null]);
+export const downloadIdentity = (url: string, audioUrl?: string, dash?: NewDownload['dash']) =>
+  JSON.stringify([url, audioUrl ?? null, ...(dash ? [dash.videoId, dash.audioId ?? null] : [])]);
 export function createJob(
   input: NewDownload,
   settings: Settings = defaultSettings,
@@ -16,8 +16,31 @@ export function createJob(
   const url = validateUrl(input.url, allowLocal).href;
   if (input.useBrowserCookies !== undefined && typeof input.useBrowserCookies !== 'boolean')
     throw new Error('Invalid browser session preference.');
-  if (input.media !== undefined && input.media !== 'hls')
+  if (input.media !== undefined && !['hls', 'dash'].includes(input.media))
     throw new Error('Unsupported media download type.');
+  if (
+    input.recordingSeconds !== undefined &&
+    (!input.media ||
+      input.audioUrl ||
+      !Number.isInteger(input.recordingSeconds) ||
+      input.recordingSeconds < 1 ||
+      input.recordingSeconds > 86400)
+  )
+    throw new Error(
+      'Live recording requires HLS or DASH and a duration from 1 to 86400 seconds; separate HLS audio is not supported.',
+    );
+  if (
+    input.dash !== undefined &&
+    (input.media !== 'dash' ||
+      !input.dash ||
+      typeof input.dash.videoId !== 'string' ||
+      !input.dash.videoId ||
+      input.dash.videoId.length > 512 ||
+      (input.dash.audioId !== undefined &&
+        (typeof input.dash.audioId !== 'string' || input.dash.audioId.length > 512)) ||
+      /[\x00-\x1f\x7f]/.test(input.dash.videoId + (input.dash.audioId ?? '')))
+  )
+    throw new Error('Invalid DASH track selection.');
   if ((input.audioUrl !== undefined || input.audioLabel !== undefined) && input.media !== 'hls')
     throw new Error('A separate audio rendition requires an HLS download.');
   const audioUrl =
@@ -55,7 +78,7 @@ export function createJob(
     throw new Error('SHA-256 must contain 64 hexadecimal characters.');
   let filename = input.filename ? sanitizeFilename(input.filename) : filenameFromHeaders(null, url);
   if (input.media && !/\.(mp4|m4a)$/i.test(filename))
-    filename = sanitizeFilename(filename.replace(/\.m3u8?$/i, '') + '.mp4');
+    filename = sanitizeFilename(filename.replace(/\.(?:m3u8?|mpd)$/i, '') + '.mp4');
   const now = Date.now();
   return {
     id: crypto.randomUUID(),
@@ -64,6 +87,10 @@ export function createJob(
       ? {
           media: {
             kind: input.media,
+            ...(input.recordingSeconds
+              ? { recording: { maxSeconds: input.recordingSeconds } }
+              : {}),
+            ...(input.dash ? { dash: { ...input.dash } } : {}),
             ...(audioUrl ? { audioUrl, audioLabel: input.audioLabel } : {}),
           },
         }

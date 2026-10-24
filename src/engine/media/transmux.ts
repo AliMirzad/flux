@@ -1,6 +1,7 @@
 import { Transmuxer, type MuxOutput } from './vendor/mux-transmuxer.js';
 import { TransportGuard, maxTransportPartBytes } from './transport';
 import { mp4Boxes, inspectMp4Init, inspectMoof, type Box } from './mp4';
+import { transportVideoConfig } from './transport-config';
 
 export interface TransportOutput {
   initialization: Uint8Array;
@@ -12,10 +13,18 @@ export interface TransportPort {
   close(): void;
 }
 export class TransportConverter {
-  private guard = new TransportGuard();
-  private converter = new Transmuxer({ keepOriginalTimestamps: true, remux: true });
+  private guard: TransportGuard;
+  private converter: Transmuxer;
   private output: MuxOutput | null = null;
-  constructor() {
+  constructor(initialization?: Uint8Array, discontinuity = false) {
+    this.guard = new TransportGuard(discontinuity);
+    const config = initialization ? transportVideoConfig(initialization) : undefined;
+    this.converter = new Transmuxer({
+      keepOriginalTimestamps: true,
+      remux: true,
+      fluxVideoConfig: config,
+      fluxContinuousVideo: !!config && !discontinuity,
+    });
     this.converter.on('data', (output) => {
       if (this.output) throw new Error('A TS part produced multiple incompatible outputs.');
       if (
@@ -27,8 +36,8 @@ export class TransportConverter {
     });
   }
   push(bytes: Uint8Array) {
-    this.guard.push(bytes);
-    this.converter.push(bytes);
+    const normalized = this.guard.push(bytes);
+    if (normalized.length) this.converter.push(normalized);
   }
   finish(duration: number, index: number): TransportOutput {
     if (

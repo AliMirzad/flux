@@ -27,6 +27,7 @@ import { validateUrl } from '../../shared/security';
 import { sanitizeFilename } from '../../shared/files';
 import type { HlsReview } from '../../engine/media/types';
 import type { HlsAudio } from '../../engine/media/hls';
+import type { DashReview, DashSelection } from '../../engine/media/dash';
 import { HostPermissionError } from '../../engine/network/policy';
 
 type Tab = 'general' | 'advanced' | 'schedule';
@@ -111,7 +112,7 @@ export function AddDownload({
   manager: ManagerAPI;
   onClose: () => void;
   initialUrl?: string;
-  initialMedia?: 'hls';
+  initialMedia?: 'hls' | 'dash';
   initialFilename?: string;
   /** Rendered inside the toolbar popup: no modal, no HLS review, and Cancel discards the capture. */
   embedded?: { onCancel: () => void };
@@ -124,7 +125,9 @@ export function AddDownload({
   const formRef = useRef<HTMLFormElement>(null);
   const addOnly = useRef(false);
   const inspection = useRef<AbortController | null>(null);
-  const [kind, setKind] = useState<'file' | 'hls'>(initialMedia ?? 'file');
+  const [kind, setKind] = useState<'file' | 'hls' | 'dash'>(initialMedia ?? 'file');
+  const [dashReview, setDashReview] = useState<DashReview | null>(null);
+  const [dashSelection, setDashSelection] = useState<DashSelection | undefined>();
   const [review, setReview] = useState<HlsReview | null>(null);
   const [variant, setVariant] = useState('');
   const [audioChoice, setAudioChoice] = useState('');
@@ -142,6 +145,7 @@ export function AddDownload({
   const [unit, setUnit] = useState<'KB' | 'MB'>('KB');
   const [remember, setRemember] = useState(false);
   const [useBrowserCookies, setUseBrowserCookies] = useState(true);
+  const [recordingMinutes, setRecordingMinutes] = useState('30');
   useEffect(() => () => inspection.current?.abort(), []);
   useEffect(() => {
     const saved = readSites()[siteHost(initialUrl)];
@@ -161,6 +165,8 @@ export function AddDownload({
     inspection.current?.abort();
     setBusy(false);
     setReview(null);
+    setDashReview(null);
+    setDashSelection(undefined);
     setAudioChoice('');
     setAudioLabel('');
     setGrant(null);
@@ -195,6 +201,19 @@ export function AddDownload({
       if (origin && !(await chrome.permissions.request({ origins: [origin + '/*'] })))
         throw new Error('Website access was declined.');
       const input = formRef.current!.querySelector<HTMLInputElement>('[name="url"]')!;
+      if (kind === 'dash') {
+        const result = await manager.inspectDash(
+          (target ?? input.value).trim(),
+          controller.signal,
+          dashSelection,
+          useBrowserCookies,
+        );
+        if (controller.signal.aborted) return;
+        setUrl(result.url);
+        setDashReview(result);
+        setDashSelection(result.selection);
+        return;
+      }
       const result = await manager.inspectHls(
         (target ?? input.value).trim(),
         controller.signal,
@@ -231,11 +250,24 @@ export function AddDownload({
       const link = String(form.get('url')).trim();
       if (kind === 'hls' && (review?.kind !== 'media' || review.url !== validateUrl(link).href))
         throw new Error('Review the selected HLS rendition before adding it.');
+      if (
+        kind === 'dash' &&
+        (!dashReview ||
+          dashReview.url !== validateUrl(link).href ||
+          JSON.stringify(dashReview.selection) !== JSON.stringify(dashSelection))
+      )
+        throw new Error('Review the selected DASH video and audio before adding it.');
       const connectionCount = split ? connections : 1;
       await manager.add({
         url: link,
         useBrowserCookies,
-        media: kind === 'hls' ? 'hls' : undefined,
+        media: kind === 'file' ? undefined : kind,
+        recordingSeconds:
+          (kind === 'hls' && review?.kind === 'media' && review.live) ||
+          (kind === 'dash' && dashReview?.live)
+            ? Math.round(Number(recordingMinutes) * 60)
+            : undefined,
+        dash: kind === 'dash' ? dashReview!.selection : undefined,
         audioUrl: kind === 'hls' && review?.kind === 'media' ? review.audioUrl : undefined,
         audioLabel:
           kind === 'hls' && review?.kind === 'media' && review.audioUrl ? audioLabel : undefined,
@@ -250,8 +282,8 @@ export function AddDownload({
         queueId: String(form.get('queueId')),
         startPaused: onlyAdd || (!startNow && !scheduled),
         category: (category as Category) || undefined,
-        maxConnections: kind === 'hls' ? undefined : connectionCount,
-        mode: kind === 'hls' ? undefined : mode,
+        maxConnections: kind !== 'file' ? undefined : connectionCount,
+        mode: kind !== 'file' ? undefined : mode,
       });
       const host = siteHost(link);
       if (host) {
@@ -272,7 +304,7 @@ export function AddDownload({
     }
   }
   async function useBrowser() {
-    if (kind === 'hls') {
+    if (kind !== 'file') {
       setError(
         'Chrome would save only the playlist. Choose a supported HLS rendition for Flux assembly.',
       );
@@ -514,23 +546,27 @@ export function AddDownload({
               onChange={(event) => {
                 inspection.current?.abort();
                 setBusy(false);
-                setKind(event.target.value as 'file' | 'hls');
+                setKind(event.target.value as 'file' | 'hls' | 'dash');
                 setReview(null);
+                setDashReview(null);
+                setDashSelection(undefined);
                 setGrant(null);
               }}
             >
               <option value="file">Direct file</option>
-              <option value="hls">HLS video (VOD)</option>
+              <option value="hls">HLS video / live recording</option>
+              <option value="dash">DASH video / live recording</option>
             </select>
           </div>
           {kind === 'hls' && (
             <div className="form-stack">
               <p className="small muted">
-                Select completed H.264/AAC media. Separate MP4 video and audio can be combined;
-                select an audio language when offered. Clear or ordinary AES-128 HLS is supported;
-                keys require website access and stay local. MP4 and independently decodable MPEG-TS
-                parts are converted to MP4. Separate TS audio and live recording require further
-                media support. TS parts are limited to 16 MiB each.
+                Review H.264/AAC HLS and choose a quality. Separate MP4 audio can be combined for
+                completed media. A live rendition with audio included can be recorded for a chosen
+                duration or finished manually. MP4 and continuous MPEG-TS parts produce MP4; the
+                first TS part needs a keyframe. Clear or ordinary AES-128 is supported. TS parts are
+                limited to 16 MiB. Completed streams support separate audio and compatible
+                discontinuities; a new TS period needs a keyframe.
               </p>
               <button
                 type="button"
@@ -627,15 +663,136 @@ export function AddDownload({
                 </>
               )}
               {review?.kind === 'media' && (
-                <p role="status">
-                  {review.parts} media parts · {review.duration.toFixed(1)} seconds. Output: MP4.
-                  {review.audioUrl && (
-                    <> Selected audio: {audioLabel}. Separate tracks will be combined.</>
+                <>
+                  {review.live && (
+                    <label>
+                      Recording duration (minutes)
+                      <input
+                        type="number"
+                        min="0.017"
+                        max="1440"
+                        step="any"
+                        value={recordingMinutes}
+                        onChange={(event) => setRecordingMinutes(event.target.value)}
+                      />
+                      <span className="small muted">
+                        Record from the available live window. Use Finish recording to save earlier.
+                        Keep this manager open. A missed segment stops recording and retains
+                        verified parts.
+                      </span>
+                    </label>
                   )}
-                  {review.encrypted &&
-                    ' AES-128: public key resources will be requested with the listed website permissions. Encrypted parts are limited to 16 MiB.'}
-                  Container and source identity are checked before saving.
-                </p>
+                  <p role="status">
+                    {review.parts} media parts · {review.duration.toFixed(1)} seconds. Output: MP4.
+                    {review.audioUrl && (
+                      <> Selected audio: {audioLabel}. Separate tracks will be combined.</>
+                    )}
+                    {review.encrypted &&
+                      ' AES-128: public key resources will be requested with the listed website permissions. Encrypted parts are limited to 16 MiB.'}
+                    Container and source identity are checked before saving.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+          {kind === 'dash' && (
+            <div className="form-stack">
+              <p className="small muted">
+                Review unprotected H.264/AAC DASH. Select video quality and audio, then review the
+                selection. Completed periods produce MP4; a dynamic manifest can be recorded for a
+                chosen duration or finished manually.
+              </p>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => void preview()}
+              >
+                Review DASH manifest
+              </button>
+              {grant && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={() => void preview(undefined, grant)}
+                >
+                  Allow stream website
+                </button>
+              )}
+              {dashReview && dashSelection && (
+                <>
+                  {dashReview.live && (
+                    <label>
+                      Recording duration (minutes)
+                      <input
+                        type="number"
+                        min="0.017"
+                        max="1440"
+                        step="any"
+                        value={recordingMinutes}
+                        onChange={(event) => setRecordingMinutes(event.target.value)}
+                      />
+                      <span className="small muted">
+                        Keep this manager open. Finish recording saves the verified video and audio
+                        already received.
+                      </span>
+                    </label>
+                  )}
+                  <label>
+                    Video quality
+                    <select
+                      aria-label="DASH video quality"
+                      value={dashSelection.videoId}
+                      onChange={(event) =>
+                        setDashSelection({ ...dashSelection, videoId: event.target.value })
+                      }
+                    >
+                      {dashReview.choices
+                        .filter((item) => item.kind === 'video')
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.width && item.height ? `${item.width}×${item.height}` : item.id} ·{' '}
+                            {Math.round(item.bandwidth / 1000)} kb/s
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label>
+                    Audio / language
+                    <select
+                      aria-label="DASH audio language"
+                      value={dashSelection.audioId ?? ''}
+                      onChange={(event) =>
+                        setDashSelection({ ...dashSelection, audioId: event.target.value })
+                      }
+                    >
+                      <option value="">No external audio / use embedded audio</option>
+                      {dashReview.choices
+                        .filter((item) => item.kind === 'audio')
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.language ?? item.id} · {Math.round(item.bandwidth / 1000)} kb/s
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => void preview()}
+                  >
+                    Review selected DASH tracks
+                  </button>
+                  {JSON.stringify(dashSelection) === JSON.stringify(dashReview.selection) && (
+                    <p role="status">
+                      {dashReview.parts} media parts · {dashReview.duration.toFixed(1)} seconds.
+                      Output: MP4. Selected video: {dashSelection.videoId}; audio:{' '}
+                      {dashSelection.audioId || 'embedded'}. Both sources are checked on resume.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -708,6 +865,7 @@ export function AddDownload({
                   inspection.current?.abort();
                   setBusy(false);
                   setReview(null);
+                  setDashReview(null);
                   setUseBrowserCookies(event.target.checked);
                 }}
                 aria-label="Use browser cookies"
@@ -738,7 +896,7 @@ export function AddDownload({
             type="button"
             className="text-button browser-fallback"
             onClick={() => void useBrowser()}
-            disabled={busy || kind === 'hls'}
+            disabled={busy || kind !== 'file'}
           >
             <ExternalLink size={14} /> Use browser
           </button>

@@ -29,7 +29,7 @@ import {
   nextQueueBoundary,
 } from './queue';
 import { enableCompletionSound, playCompletionSound } from './feedback';
-import { createSHA256 } from 'hash-wasm';
+import { withSHA256 } from '../engine/hash';
 import { captureOrigins, excludedHost } from '../shared/capture';
 import {
   PageTransfers,
@@ -39,7 +39,14 @@ import {
 } from './page-transfer';
 import { updateBrowserJob, browserNeedsReview } from '../domain/browser-download';
 import { nextRetryAt, retryDue, hasPendingTransfer } from '../domain/retry';
-import type { HlsReview } from '../engine/media/types';
+import type { HlsReview, MediaReview } from '../engine/media/types';
+import type { DashReview, DashSelection } from '../engine/media/dash';
+import {
+  validateCrawlOptions,
+  type CrawlOptions,
+  type CrawlProgress,
+  type CrawlResult,
+} from '../engine/crawl/site';
 import { HostPermissionError } from '../engine/network/policy';
 
 const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.id;
@@ -73,6 +80,13 @@ class Manager implements ManagerAPI {
     (reply: Extract<WorkerEvent, { type: 'hls-review' }>) => void
   >();
   private reviewedOrigins = new Map<string, { at: number; origins: string[] }>();
+  private crawls = new Map<
+    string,
+    {
+      progress?: (value: CrawlProgress) => void;
+      done: (reply: Extract<WorkerEvent, { type: 'crawl-result' }>) => void;
+    }
+  >();
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {
@@ -276,19 +290,19 @@ class Manager implements ManagerAPI {
     finish: async (id, grant, filename) => {
       const file = await partialFile(id);
       if (file.size !== grant.size) throw new Error('Received data did not match its size.');
-      const hasher = await createSHA256();
-      hasher.init();
-      const reader = file.stream().getReader();
-      try {
-        while (true) {
-          const part = await reader.read();
-          if (part.done) break;
-          hasher.update(part.value);
+      const sha256 = await withSHA256(async (hasher) => {
+        const reader = file.stream().getReader();
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            hasher.update(part.value);
+          }
+          return hasher.digest('hex');
+        } finally {
+          reader.releaseLock();
         }
-      } finally {
-        reader.releaseLock();
-      }
-      const sha256 = hasher.digest('hex');
+      });
       const job = createJob({ url: grant.source, filename }, this.snapshot.settings);
       Object.assign(job, {
         id,
@@ -419,6 +433,12 @@ class Manager implements ManagerAPI {
     this.publish({ storage: { usage: estimate.usage ?? 0, quota: estimate.quota ?? 0 } });
   }
   private async workerCrashed() {
+    for (const [requestId, request] of this.crawls)
+      request.done({
+        type: 'crawl-result',
+        requestId,
+        error: 'The worker stopped. Scan the site again after reloading the manager.',
+      });
     this.holdQueue = true;
     for (const [requestId, reply] of [...this.inspections])
       reply({
@@ -438,6 +458,14 @@ class Manager implements ManagerAPI {
     this.waiters.clear();
   }
   private async onWorker(event: WorkerEvent) {
+    if (event.type === 'crawl-progress') {
+      this.crawls.get(event.requestId)?.progress?.(event.progress);
+      return;
+    }
+    if (event.type === 'crawl-result') {
+      this.crawls.get(event.requestId)?.done(event);
+      return;
+    }
     if (event.type === 'hls-review') {
       this.inspections.get(event.requestId)?.(event);
       return;
@@ -496,10 +524,9 @@ class Manager implements ManagerAPI {
     this.validateQueue(input.queueId);
     const job = createJob(input, this.snapshot.settings);
     if (isExtension) {
-      const reviewed =
-        input.media === 'hls'
-          ? this.reviewedOrigins.get(JSON.stringify([url.href, job.media?.audioUrl ?? null]))
-          : undefined;
+      const reviewed = input.media
+        ? this.reviewedOrigins.get(downloadIdentity(url.href, job.media?.audioUrl, job.media?.dash))
+        : undefined;
       const origins = reviewed && Date.now() - reviewed.at < 300000 ? reviewed.origins : [];
       const granted = await chrome.permissions.request({
         origins: [
@@ -515,8 +542,8 @@ class Manager implements ManagerAPI {
     if (
       this.snapshot.jobs.some(
         (j) =>
-          downloadIdentity(j.url, j.media?.audioUrl) ===
-            downloadIdentity(job.url, job.media?.audioUrl) &&
+          downloadIdentity(j.url, j.media?.audioUrl, j.media?.dash) ===
+            downloadIdentity(job.url, job.media?.audioUrl, job.media?.dash) &&
           hasPendingTransfer(j, this.snapshot.settings),
       )
     )
@@ -531,6 +558,35 @@ class Manager implements ManagerAPI {
     rawAudio?: string,
     useBrowserCookies = false,
   ): Promise<HlsReview> {
+    const review = await this.inspectStream(raw, signal, rawAudio, useBrowserCookies);
+    if (review.kind === 'dash') throw new Error('The review returned a different media format.');
+    return review;
+  }
+  async inspectDash(
+    raw: string,
+    signal?: AbortSignal,
+    dash?: DashSelection,
+    useBrowserCookies = false,
+  ): Promise<DashReview> {
+    const review = await this.inspectStream(
+      raw,
+      signal,
+      undefined,
+      useBrowserCookies,
+      dash,
+      'dash',
+    );
+    if (review.kind !== 'dash') throw new Error('The review returned a different media format.');
+    return review;
+  }
+  private async inspectStream(
+    raw: string,
+    signal?: AbortSignal,
+    rawAudio?: string,
+    useBrowserCookies = false,
+    dash?: DashSelection,
+    protocol: 'hls' | 'dash' = 'hls',
+  ): Promise<MediaReview> {
     this.ensureOwner();
     if (!isExtension) throw new Error('HLS review requires the installed Chrome extension.');
     const url = validateUrl(raw).href;
@@ -547,7 +603,7 @@ class Manager implements ManagerAPI {
       throw new Error('Website access was declined.');
     if (signal?.aborted) throw new DOMException('Media review canceled.', 'AbortError');
     const requestId = crypto.randomUUID();
-    const review = await new Promise<HlsReview>((resolve, reject) => {
+    const review = await new Promise<MediaReview>((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timer);
         signal?.removeEventListener('abort', abort);
@@ -580,9 +636,18 @@ class Manager implements ManagerAPI {
         url,
         audioUrl,
         useBrowserCookies,
+        protocol,
+        dash,
       });
     });
-    if (review.kind === 'media') {
+    if (review.kind === 'dash') {
+      for (const value of new Set([url, review.url])) {
+        const key = downloadIdentity(value, undefined, review.selection);
+        if (!this.reviewedOrigins.has(key) && this.reviewedOrigins.size >= 16)
+          this.reviewedOrigins.delete(this.reviewedOrigins.keys().next().value!);
+        this.reviewedOrigins.set(key, { at: Date.now(), origins: review.origins });
+      }
+    } else if (review.kind === 'media') {
       for (const key of new Set([
         JSON.stringify([url, audioUrl ?? null]),
         JSON.stringify([review.url, review.audioUrl ?? null]),
@@ -605,13 +670,13 @@ class Manager implements ManagerAPI {
     const seen = new Set(
       this.snapshot.jobs
         .filter((job) => hasPendingTransfer(job, this.snapshot.settings))
-        .map((job) => downloadIdentity(job.url, job.media?.audioUrl)),
+        .map((job) => downloadIdentity(job.url, job.media?.audioUrl, job.media?.dash)),
     );
     const jobs: DownloadJob[] = [];
     for (const input of inputs) {
       this.validateQueue(input.queueId);
       const job = createJob(input, this.snapshot.settings);
-      const identity = downloadIdentity(job.url, job.media?.audioUrl);
+      const identity = downloadIdentity(job.url, job.media?.audioUrl, job.media?.dash);
       if (!seen.has(identity)) {
         seen.add(identity);
         jobs.push(job);
@@ -640,6 +705,10 @@ class Manager implements ManagerAPI {
     this.ensureOwner();
     const job = this.job(id);
     if (job.pageFile) throw new Error('Create this file again on its website.');
+    if (job.media?.recording?.snapshot)
+      throw new Error(
+        'Finish and save the retained live recording, then start the new address as another recording.',
+      );
     if (
       !['PAUSED', 'FAILED', 'WAITING_FOR_NETWORK', 'QUEUED'].includes(job.state) ||
       this.active.has(id) ||
@@ -747,6 +816,29 @@ class Manager implements ManagerAPI {
       chrome.downloads.show(item.id);
       return;
     }
+    if (action === 'finish-recording') {
+      if (
+        !job.media?.recording ||
+        job.media.recording.finished ||
+        job.segments.length <= (job.media.transport === 'mpegts' ? 0 : 1) ||
+        !['DOWNLOADING', 'PAUSED', 'FAILED', 'WAITING_FOR_NETWORK'].includes(job.state)
+      )
+        throw new Error('There is no retained live recording to finish.');
+      if (this.active.has(job.id)) this.worker?.postMessage({ type: 'finish-recording', id });
+      else {
+        job.media.recording.finished = true;
+        job.budgetResumeAt = null;
+        job.queueRetryAt = null;
+        job.retryFailure = null;
+        job.permissionOrigin = null;
+        job.error = null;
+        transition(job, 'QUEUED');
+        this.forced.add(job.id);
+        await this.persist(job);
+        await this.pump();
+      }
+      return;
+    }
     if (action === 'cancel' && job.state === 'COMPLETED') return;
     if (job.pageFile && ['start', 'resume', 'retry'].includes(action))
       throw new Error('Create this file again on its website, or save the retained copy.');
@@ -805,7 +897,11 @@ class Manager implements ManagerAPI {
           if (job.media) {
             await this.repository.clearMediaCheckpoints(id);
             job.media = {
-              kind: 'hls',
+              kind: job.media.kind,
+              ...(job.media.recording
+                ? { recording: { maxSeconds: job.media.recording.maxSeconds } }
+                : {}),
+              ...(job.media.dash ? { dash: { ...job.media.dash } } : {}),
               ...(job.media.audioUrl
                 ? { audioUrl: job.media.audioUrl, audioLabel: job.media.audioLabel }
                 : {}),
@@ -847,6 +943,8 @@ class Manager implements ManagerAPI {
         filename: job.filename,
         expectedHash: job.expectedHash ?? undefined,
         media: job.media?.kind,
+        recordingSeconds: job.media?.recording?.maxSeconds,
+        dash: job.media?.dash,
         audioUrl: job.media?.audioUrl,
         audioLabel: job.media?.audioLabel,
       });
@@ -1164,22 +1262,22 @@ class Manager implements ManagerAPI {
       await this.persist(job);
       const file = await partialFile(id);
       if (file.size !== job.total) throw new Error('Stored file size changed. Export stopped.');
-      const hasher = await createSHA256();
-      hasher.init();
-      const verify = new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          hasher.update(chunk);
-          controller.enqueue(chunk);
-        },
-        flush() {
-          if (hasher.digest('hex') !== job.sha256)
-            throw new Error(
-              'Saved content failed SHA-256 verification. The destination was not committed.',
-            );
-        },
+      await withSHA256(async (hasher) => {
+        const verify = new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            hasher.update(chunk);
+            controller.enqueue(chunk);
+          },
+          flush() {
+            if (hasher.digest('hex') !== job.sha256)
+              throw new Error(
+                'Saved content failed SHA-256 verification. The destination was not committed.',
+              );
+          },
+        });
+        writable = await handle.createWritable();
+        await file.stream().pipeThrough(verify).pipeTo(writable);
       });
-      writable = await handle.createWritable();
-      await file.stream().pipeThrough(verify).pipeTo(writable);
       writable = null;
       destinationCommitted = true;
       transition(job, 'COMPLETED');
@@ -1189,7 +1287,8 @@ class Manager implements ManagerAPI {
       job.error = null;
       await this.persist(job);
     } catch (error) {
-      if (writable) await writable.abort().catch(() => undefined);
+      const unfinished = writable as FileSystemWritableFileStream | null;
+      if (unfinished) await unfinished.abort().catch(() => undefined);
       if (destinationCommitted) {
         job.error =
           'File saved successfully, but history could not be updated. ' + safeError(error);
@@ -1333,21 +1432,23 @@ class Manager implements ManagerAPI {
       await this.persist(job);
       // This path gives Chrome a file-backed Blob instead of a writable stream.
       // Recheck that exact immutable File snapshot before Chrome can commit it.
-      const hasher = await createSHA256();
-      hasher.init();
-      const reader = file.stream().getReader();
-      try {
-        while (true) {
-          const part = await reader.read();
-          if (part.done) break;
-          hasher.update(part.value);
+      await withSHA256(async (hasher) => {
+        const reader = file.stream().getReader();
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            hasher.update(part.value);
+          }
+        } finally {
+          await reader.cancel().catch(() => undefined);
+          reader.releaseLock();
         }
-      } finally {
-        await reader.cancel().catch(() => undefined);
-        reader.releaseLock();
-      }
-      if (hasher.digest('hex') !== job.sha256)
-        throw new Error('Stored content failed SHA-256 verification. No browser save was started.');
+        if (hasher.digest('hex') !== job.sha256)
+          throw new Error(
+            'Stored content failed SHA-256 verification. No browser save was started.',
+          );
+      });
       // An untyped blob lets Chrome swap the extension (e.g. .bin -> .txt); octet-stream keeps it.
       url = URL.createObjectURL(new Blob([file], { type: 'application/octet-stream' }));
       // Read by the background onDeterminingFilename listener, which otherwise renames the file.
@@ -1498,6 +1599,47 @@ class Manager implements ManagerAPI {
     if (result?.error) throw new Error(result.error);
     return result?.items ?? [];
   }
+  async crawlSite(
+    raw: string,
+    options: CrawlOptions,
+    signal?: AbortSignal,
+    progress?: (value: CrawlProgress) => void,
+  ): Promise<CrawlResult> {
+    this.ensureOwner();
+    validateCrawlOptions(options);
+    if (!isExtension) throw new Error('Site crawling requires the installed extension.');
+    if (this.crawls.size) throw new Error('Finish or stop the current site scan first.');
+    const url = validateUrl(raw);
+    if (!(await chrome.permissions.request({ origins: [originPattern(url.href)] })))
+      throw new Error('Website access was declined.');
+    if (signal?.aborted) throw new DOMException('Scan canceled.', 'AbortError');
+    this.ensureOwner();
+    if (this.crawls.size) throw new Error('Finish or stop the current site scan first.');
+    const requestId = crypto.randomUUID();
+    return new Promise<CrawlResult>((resolve, reject) => {
+      const stop = () => this.worker?.postMessage({ type: 'cancel-crawl', requestId });
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', stop);
+        this.crawls.delete(requestId);
+      };
+      const timer = setTimeout(() => {
+        stop();
+        cleanup();
+        reject(new Error('The site scan did not finish within its time limit.'));
+      }, 330000);
+      this.crawls.set(requestId, {
+        progress,
+        done: (reply) => {
+          cleanup();
+          if (reply.result) resolve(reply.result);
+          else reject(new Error(reply.error ?? 'The site scan failed.'));
+        },
+      });
+      signal?.addEventListener('abort', stop, { once: true });
+      this.worker!.postMessage({ type: 'crawl-site', requestId, url: url.href, options });
+    });
+  }
   private async pump() {
     if (this.pumping) {
       this.pumpAgain = true;
@@ -1610,6 +1752,11 @@ class Manager implements ManagerAPI {
           continue;
         if (
           isExtension &&
+          !(
+            job.media?.recording?.finished &&
+            job.media.recording.snapshot &&
+            job.segments.length > (job.media.transport === 'mpegts' ? 0 : 1)
+          ) &&
           !(await chrome.permissions.contains({ origins: [originPattern(job.url)] }))
         ) {
           if (job.state !== 'FAILED')
@@ -1823,7 +1970,7 @@ class Manager implements ManagerAPI {
             .filter((job) => job.engine !== 'browser' && !job.pageFile)
             .filter((job) => job.state !== 'CANCELED')
             .sort((a, b) => a.createdAt - b.createdAt)
-            .map((job) => [downloadIdentity(job.url, job.media?.audioUrl), job]),
+            .map((job) => [downloadIdentity(job.url, job.media?.audioUrl, job.media?.dash), job]),
         ).values(),
       ];
       if (!templates.length) continue;
@@ -1841,6 +1988,8 @@ class Manager implements ManagerAPI {
             speedLimit: template.speedLimit,
             expectedHash: template.expectedHash ?? undefined,
             media: template.media?.kind,
+            recordingSeconds: template.media?.recording?.maxSeconds,
+            dash: template.media?.dash,
             audioUrl: template.media?.audioUrl,
             audioLabel: template.media?.audioLabel,
             queueId: queue.id,

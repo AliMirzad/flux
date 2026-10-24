@@ -29,8 +29,8 @@ function setup(path = 'vod.m3u8') {
     store,
     signal: new AbortController().signal,
     allowLocalForTests: true,
-    transportFactory: () => {
-      const converter = new TransportConverter();
+    transportFactory: (_signal, initialization, discontinuity) => {
+      const converter = new TransportConverter(initialization, discontinuity);
       return {
         push: async (bytes) => converter.push(bytes),
         finish: async (duration, index) => converter.finish(duration, index),
@@ -52,6 +52,189 @@ function setup(path = 'vod.m3u8') {
   return { job, store, records, options };
 }
 describe('real HTTP HLS assembly', () => {
+  it('bounds and cancels a changed weak-validator initialization before committing any bytes', async () => {
+    const state = setup('epoch-vod.m3u8');
+    const abort = new AbortController(),
+      save = state.options.mediaCheckpoints!.save;
+    state.options.signal = abort.signal;
+    state.options.mediaCheckpoints!.save = async (job, record) => {
+      await save(job, record);
+      if (record.initializationSource) abort.abort();
+    };
+    await expect(runHlsDownload(state.options)).rejects.toMatchObject({ name: 'AbortError' });
+    const retained = state.store.data.slice();
+    [...state.records.values()].find(
+      (record) => record.initializationSource,
+    )!.initializationSource!.etag = null;
+    state.job.state = 'PROBING';
+    state.options.signal = new AbortController().signal;
+    state.options.mediaCheckpoints!.save = save;
+    let pulls = 0,
+      canceled = false;
+    state.options.fetcher = (async (input, init) => {
+      if (!String(input).endsWith('epoch-init.mp4')) return fetch(input, init);
+      return new Response(
+        new ReadableStream(
+          {
+            pull() {
+              pulls++;
+            },
+            cancel() {
+              canceled = true;
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+        { headers: { 'content-length': String(1048577) } },
+      );
+    }) as typeof fetch;
+    await expect(runHlsDownload(state.options)).rejects.toThrow(/initialization metadata exceeds/);
+    // The host-slot wrapper may prefetch one chunk before the header check.
+    expect(pulls).toBeLessThanOrEqual(1);
+    expect(canceled).toBe(true);
+    expect(state.store.data).toEqual(retained);
+  });
+  it('requires a new-period initialization and media to fit the same allowance', async () => {
+    const state = setup('epoch-vod.m3u8');
+    state.options.settings = { ...defaultSettings };
+    const save = state.options.mediaCheckpoints!.save;
+    state.options.mediaCheckpoints!.save = async (job, record) => {
+      await save(job, record);
+      if (record.index === 4) {
+        const init = await readFile(new URL('../fixtures/media/init.mp4', import.meta.url));
+        const first = await readFile(new URL('../fixtures/media/part-0.m4s', import.meta.url));
+        state.options.settings.trafficLimit = init.length + first.length - 1;
+      }
+    };
+    await expect(runHlsDownload(state.options)).rejects.toThrow(/allowance/);
+    expect(state.job.segments).toHaveLength(5);
+    expect(state.job.media!.currentEpoch ?? 0).toBe(0);
+  });
+  for (const change of ['missing identity', 'changed source'])
+    it(`retains both periods and refuses ${change} for their initialization on resume`, async () => {
+      const state = setup('epoch-vod.m3u8');
+      const abort = new AbortController(),
+        save = state.options.mediaCheckpoints!.save;
+      state.options.signal = abort.signal;
+      state.options.mediaCheckpoints!.save = async (job, record) => {
+        await save(job, record);
+        if (record.initializationSource) abort.abort();
+      };
+      await expect(runHlsDownload(state.options)).rejects.toMatchObject({ name: 'AbortError' });
+      const retained = state.store.data.slice(),
+        segments = structuredClone(state.job.segments);
+      const record = [...state.records.values()].find((item) => item.initializationSource)!;
+      expect(record).toBeDefined();
+      if (change === 'missing identity') delete record.initializationSource;
+      else {
+        record.initializationSource!.etag = null;
+        state.options.fetcher = (async (input, init) => {
+          const response = await fetch(input, init);
+          if (!String(input).endsWith('epoch-init.mp4')) return response;
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          bytes[bytes.length - 1]! ^= 1;
+          return new Response(bytes, { headers: response.headers });
+        }) as typeof fetch;
+      }
+      state.options.signal = new AbortController().signal;
+      state.options.mediaCheckpoints!.save = save;
+      state.job.state = 'PROBING';
+      await expect(runHlsDownload(state.options)).rejects.toThrow(
+        change === 'missing identity' ? /checkpoint identity/ : /source part changed/,
+      );
+      expect(state.store.data).toEqual(retained);
+      expect(state.job.segments).toEqual(segments);
+    });
+  for (const path of ['epoch-vod.m3u8', 'epoch-ts-vod.m3u8'])
+    it(`remuxes declared clock resets in ${path} without discarding either period`, async () => {
+      const state = setup(path);
+      await runHlsDownload(state.options);
+      const original = encodedSampleProof(
+        await readFile(new URL('../fixtures/media/source.mp4', import.meta.url)),
+      );
+      expect(encodedSampleProof(state.store.data)).toEqual({
+        video: [...original.video, ...original.video],
+        audio: [...original.audio, ...original.audio],
+      });
+      expect(state.job.media!.duration).toBeCloseTo(8.1664);
+    });
+  it('composes separate MPEG-TS video and audio without discarding encoded samples', async () => {
+    const state = setup('split/ts-video.m3u8');
+    state.job.media!.audioUrl = fixture.url + '/hls/split/ts-audio.m3u8';
+    await runHlsDownload(state.options);
+    expect(state.job.state).toBe('ASSEMBLING');
+    expect(state.job.media!.completed).toBe(8);
+    expect(encodedSampleProof(state.store.data)).toEqual(
+      encodedSampleProof(await readFile(new URL('../fixtures/media/source.mp4', import.meta.url))),
+    );
+  });
+  it('records a sliding live window to ENDLIST without losing expired parts', async () => {
+    const state = setup('live-vod.m3u8?unit=ended');
+    state.job.media!.recording = { maxSeconds: 30 };
+    await runHlsDownload(state.options);
+    expect(state.job.media!.recording.finished).toBe(true);
+    expect(state.job.segments).toHaveLength(5);
+    expect(encodedSampleProof(state.store.data)).toEqual(
+      encodedSampleProof(await readFile(new URL('../fixtures/media/source.mp4', import.meta.url))),
+    );
+  });
+  it('finishes a recording at a verified boundary on request or duration limit', async () => {
+    for (const stop of ['button', 'duration']) {
+      const state = setup('live-vod.m3u8?unit=' + stop);
+      state.job.media!.recording = { maxSeconds: stop === 'duration' ? 1 : 30 };
+      let finish = false;
+      state.options.finishRecording = () => finish;
+      const save = state.options.mediaCheckpoints!.save;
+      state.options.mediaCheckpoints!.save = async (job, record) => {
+        await save(job, record);
+        if (record.index === 1 && stop === 'button') finish = true;
+      };
+      await runHlsDownload(state.options);
+      expect(state.job.state).toBe('ASSEMBLING');
+      expect(state.job.segments).toHaveLength(2);
+      expect(state.job.media!.duration).toBeCloseTo(1.0504);
+      expect(state.job.media!.recording.snapshot).toContain('#EXT-X-ENDLIST');
+    }
+  });
+  it('resumes a durable live plan and can finish offline after a restart', async () => {
+    const state = setup('live-vod.m3u8?unit=offline');
+    state.job.media!.recording = { maxSeconds: 30 };
+    const abort = new AbortController();
+    state.options.signal = abort.signal;
+    const save = state.options.mediaCheckpoints!.save;
+    state.options.mediaCheckpoints!.save = async (job, record) => {
+      await save(job, record);
+      if (record.index === 1) abort.abort();
+    };
+    await expect(runHlsDownload(state.options)).rejects.toMatchObject({ name: 'AbortError' });
+    const retained = state.store.data.slice();
+    state.job = structuredClone(state.job);
+    state.options.job = state.job;
+    state.job.media!.recording!.finished = true;
+    state.job.state = 'PROBING';
+    state.options.signal = new AbortController().signal;
+    state.options.fetcher = (async () => {
+      throw new Error('Offline: no fetch allowed');
+    }) as typeof fetch;
+    state.options.checkAllowance = async () => {
+      throw new Error('No network allowance left');
+    };
+    state.options.mediaCheckpoints!.save = save;
+    await runHlsDownload(state.options);
+    expect(state.store.data).toEqual(retained);
+    expect(state.job.sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+  it('retains every encoded sample across non-keyframe TS boundaries and multi-packet program maps', async () => {
+    const state = setup('continuous-vod.m3u8');
+    await runHlsDownload(state.options);
+    expect(state.job.state).toBe('ASSEMBLING');
+    expect(state.job.segments).toHaveLength(5);
+    const proof = encodedSampleProof(state.store.data);
+    const original = encodedSampleProof(
+      await readFile(new URL('../fixtures/media/source.mp4', import.meta.url)),
+    );
+    expect(proof).toEqual(original);
+  });
   it('requires both members of a compound media checkpoint to fit one whole allowance', async () => {
     const state = setup('split/video.m3u8');
     state.job.media!.audioUrl = fixture.url + '/hls/split/audio.m3u8';

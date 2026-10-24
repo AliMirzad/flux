@@ -1176,7 +1176,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         func: (includeLinks: boolean) => {
           const isPlaylist = (value: string) => {
             try {
-              return /\.m3u8?$/i.test(new URL(value).pathname);
+              return /\.(?:m3u8?|mpd)$/i.test(new URL(value).pathname);
             } catch {
               return false;
             }
@@ -1212,8 +1212,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
               {
                 url: parsed.href,
                 filename: parsed.pathname.split('/').pop() ?? 'media',
-                ...(message.type === 'detect-media' && /\.m3u8?$/i.test(parsed.pathname)
-                  ? { media: 'hls' as const }
+                ...(message.type === 'detect-media' && /\.(?:m3u8?|mpd)$/i.test(parsed.pathname)
+                  ? {
+                      media: /\.mpd$/i.test(parsed.pathname) ? ('dash' as const) : ('hls' as const),
+                    }
                   : {}),
               },
             ];

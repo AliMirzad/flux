@@ -51,10 +51,13 @@ export interface DownloadJob {
     erased?: boolean;
   };
   media?: {
-    kind: 'hls';
+    kind: 'hls' | 'dash';
+    recording?: { maxSeconds: number; snapshot?: string; finished?: boolean };
+    dash?: { videoId: string; audioId?: string };
     transport?: 'mp4' | 'mpegts';
     initializationBytes?: number;
     initializationHash?: string;
+    sourceInitializationHashes?: Record<string, string>;
     planHash?: string;
     playlistUrl?: string;
     audioUrl?: string;
@@ -65,6 +68,8 @@ export interface DownloadJob {
     parts?: number;
     completed?: number;
     originSeconds?: number;
+    currentEpoch?: number;
+    epochOffset?: number;
     trackEnds?: Record<string, number>;
   };
   queueId?: string;
@@ -247,7 +252,9 @@ export const defaultSettings: Settings = {
 export interface NewDownload {
   url: string;
   useBrowserCookies?: boolean;
-  media?: 'hls';
+  media?: 'hls' | 'dash';
+  recordingSeconds?: number;
+  dash?: { videoId: string; audioId?: string };
   audioUrl?: string;
   audioLabel?: string;
   queueId?: string;

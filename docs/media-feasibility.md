@@ -2,6 +2,8 @@
 
 Research date: 2026-10-20; implementation update: 2026-10-21. Status: **limited HLS fMP4 and independently decodable MPEG-TS VOD assembly implemented and tested; broader media work remains open**. The original requirements below remain the acceptance contract for the complete requested IDM/AB media capability.
 
+The unreleased working tree has since added static DASH, finite muxed HLS live recording, non-keyframe TS continuation and split program tables. The historical evidence below is unchanged; see [current development scope and verification](development-features.md) for those additions.
+
 ## Source findings
 
 [RFC 8216](https://datatracker.ietf.org/doc/html/rfc8216) defines playlists, alternate renditions, initialization sections, byte-range segments and discontinuities. MPEG-TS and fragmented MP4 need different container handling. A list of segment URLs alone does not establish a valid combined file. This supports a manifest-aware download plan rather than treating a playlist as an ordinary binary file.
@@ -55,3 +57,7 @@ Review exposes master audio names/languages and retains the selected media playl
 Both initializations and both first media fragments commit as logical pairs; recovery revalidates both members before continuing. Source identity, ciphertext/key fingerprints and output extent/hash remain distinct. A compound part plus necessary key verification must fit one allowance. Combined initialization remains at most 1 MiB, each manifest at most 4 MiB and the two plans together at most 32,768 media parts. Selected audio persists through cancel/redownload, periodic queue templates and version-3 URL-list exports.
 
 The own synthetic fixture has separate tracks with intentionally colliding track ID 1. Original and alternate choices preserve all 62 video frames and 185 selected AAC samples. Alternate audio rotates the synthetic AAC sequence; it tests routing and timing, not spoken-language recognition. Actual exported files are independently decoded and sought in Chrome, and clear/encrypted paired jobs recover both retained sources after a full browser restart. Missing audio-origin access and weak-validator companion changes fail safely. Exact hashes, decoded tones and remaining long-media gates are in [0.10 verification](verification-0.10.md).
+
+## Version 1 candidate expansion
+
+The current support matrix and new playback/recovery results are in [v1 acceptance](release-acceptance-v1.md). It adds continuous TS with split PSI, separate TS audio, compatible HLS discontinuities, static multi-period DASH and bounded dynamic DASH recording. Earlier sections describe the historical 0.7–0.10 artifacts, not the current support boundary. Codec/default changes, DRM, hierarchical SIDX, dynamic DASH period switching and separate-audio live HLS remain refused.

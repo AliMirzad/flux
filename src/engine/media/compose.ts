@@ -8,10 +8,13 @@ export interface HlsStep extends HlsPart {
   expectedEnds?: Partial<Record<MediaKind, number>>;
 }
 export function pairHlsPlans(video: HlsManifest, audio: HlsManifest) {
-  if (video.kind !== 'media' || audio.kind !== 'media' || !video.init || !audio.init)
-    throw new Error(
-      'Separate audio currently requires completed fragmented-MP4 video and audio playlists.',
-    );
+  if (
+    video.kind !== 'media' ||
+    audio.kind !== 'media' ||
+    video.transport !== audio.transport ||
+    (video.transport === 'mp4' && (!video.init || !audio.init))
+  )
+    throw new Error('Separate audio requires matching fragmented-MP4 or MPEG-TS media playlists.');
   if (Math.abs(video.duration - audio.duration) > 0.5)
     throw new Error('The selected audio and video playlist durations do not match.');
   if (video.parts.length + audio.parts.length > 32768)
@@ -21,6 +24,7 @@ export function pairHlsPlans(video: HlsManifest, audio: HlsManifest) {
     const track: MediaKind = order ? 'audio' : 'video';
     let at = 0;
     for (const [index, part] of plan.parts.entries()) {
+      if (part.presentationOffset !== undefined) at = part.presentationOffset;
       if (index)
         remaining.push({
           part: { ...part, track, expectedEnds: { [track]: at + part.duration! } },
@@ -31,12 +35,35 @@ export function pairHlsPlans(video: HlsManifest, audio: HlsManifest) {
     }
   }
   remaining.sort((a, b) => a.at - b.at || a.order - b.order);
+  const ordered: HlsStep[] = [];
+  for (let index = 0; index < remaining.length; index++) {
+    const current = remaining[index]!,
+      next = remaining[index + 1];
+    if (
+      current.part.presentationOffset !== undefined &&
+      next &&
+      current.part.track === 'video' &&
+      next.part.track === 'audio' &&
+      Math.abs(current.at - next.at) < 0.001 &&
+      current.part.epoch === next.part.epoch
+    ) {
+      ordered.push({
+        ...current.part,
+        companion: next.part as HlsPart & { track: MediaKind },
+        expectedEnds: { ...current.part.expectedEnds, ...next.part.expectedEnds },
+      });
+      index++;
+    } else ordered.push(current.part);
+  }
   return {
-    init: {
-      ...video.init,
-      track: 'video',
-      companion: { ...audio.init, track: 'audio' },
-    } as HlsStep,
+    init:
+      video.transport === 'mpegts'
+        ? undefined
+        : ({
+            ...video.init!,
+            track: 'video',
+            companion: { ...audio.init!, track: 'audio' },
+          } as HlsStep),
     parts: [
       {
         ...video.parts[0]!,
@@ -44,11 +71,11 @@ export function pairHlsPlans(video: HlsManifest, audio: HlsManifest) {
         companion: { ...audio.parts[0]!, track: 'audio' },
         expectedEnds: { video: video.parts[0]!.duration!, audio: audio.parts[0]!.duration! },
       },
-      ...remaining.map((item) => item.part),
+      ...ordered,
     ] as HlsStep[],
     duration: Math.max(video.duration, audio.duration),
     sourceParts: video.parts.length + audio.parts.length,
-    transport: 'mp4' as const,
+    transport: video.transport,
   };
 }
 
