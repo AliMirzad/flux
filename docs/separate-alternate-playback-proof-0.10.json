@@ -1,0 +1,35 @@
+{
+  "duration": 4.0832,
+  "width": 160,
+  "height": 90,
+  "colors": [
+    [254, 0, 0, 255],
+    [0, 255, 0, 255],
+    [0, 1, 253, 255]
+  ],
+  "tones": [
+    {
+      "hz": 880,
+      "rms": 0.07065523928661338
+    },
+    {
+      "hz": 460,
+      "rms": 0.0705556661334391
+    },
+    {
+      "hz": 880,
+      "rms": 0.07066509606696687
+    }
+  ],
+  "audioDuration": 3.9463333333333335,
+  "bytes": 53101,
+  "sha256": "3009eb4555cb32473be564240fdf9719cfb69c24b43f7387753c3d9397d63a67",
+  "chrome": "155.0.8059.85",
+  "encodedSamples": {
+    "audio": 185,
+    "video": 62,
+    "identicalToSource": false,
+    "identicalToSelectedSource": true,
+    "audioSelection": "alternate"
+  }
+}

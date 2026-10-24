@@ -100,10 +100,11 @@ export class Repository {
     return this.run('jobs', 'readwrite', (s) => s.put(structuredClone(job))).then(() => undefined);
   }
   async putJobs(jobs: DownloadJob[]) {
+    const snapshots = structuredClone(jobs);
     const transaction = await this.transaction('jobs', 'readwrite');
     await new Promise<void>((resolve, reject) => {
       const store = transaction.objectStore('jobs');
-      for (const job of jobs) store.put(structuredClone(job));
+      for (const job of snapshots) store.put(job);
       transaction.oncomplete = () => resolve();
       transaction.onerror = transaction.onabort = () =>
         reject(transaction.error ?? new Error('Batch commit failed.'));
@@ -139,22 +140,25 @@ export class Repository {
   async putMediaCheckpoint(job: DownloadJob, record: MediaCheckpoint) {
     if (!job.media || !Number.isInteger(record.index) || record.index < 0 || record.index > 32768)
       throw new Error('Invalid media checkpoint.');
+    this.mediaRange(job.id);
+    const snapshot = structuredClone(job),
+      checkpoint = structuredClone(record);
     const transaction = await this.transaction(['jobs', 'config'], 'readwrite');
     await new Promise<void>((resolve, reject) => {
-      transaction.objectStore('jobs').put(structuredClone(job));
-      transaction
-        .objectStore('config')
-        .put(structuredClone(record), ['media', job.id, record.index]);
+      transaction.objectStore('jobs').put(snapshot);
+      transaction.objectStore('config').put(checkpoint, ['media', job.id, record.index]);
       transaction.oncomplete = () => resolve();
       transaction.onerror = transaction.onabort = () =>
         reject(transaction.error ?? new Error('Media checkpoint commit failed.'));
     });
   }
   async putQueueRun(jobs: DownloadJob[], settings: Settings) {
+    const snapshots = structuredClone(jobs),
+      config = structuredClone(settings);
     const transaction = await this.transaction(['jobs', 'config'], 'readwrite');
     await new Promise<void>((resolve, reject) => {
-      for (const job of jobs) transaction.objectStore('jobs').put(structuredClone(job));
-      transaction.objectStore('config').put(structuredClone(settings), 'settings');
+      for (const job of snapshots) transaction.objectStore('jobs').put(job);
+      transaction.objectStore('config').put(config, 'settings');
       transaction.oncomplete = () => resolve();
       transaction.onerror = transaction.onabort = () =>
         reject(transaction.error ?? new Error('Queue run could not be committed.'));

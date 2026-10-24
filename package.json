@@ -1,6 +1,6 @@
 {
   "name": "flux-download-manager",
-  "version": "0.7.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "test:browser": "playwright test",
     "benchmark": "node scripts/benchmark.mjs",
     "release": "npm run build && node scripts/release.mjs",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "vendor:media": "node scripts/vendor-media.mjs"
   },
   "dependencies": {
     "hash-wasm": "^4.12.0",
@@ -30,6 +31,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "esbuild": "^0.25.0",
     "fake-indexeddb": "^6.2.4",
+    "mux.js": "6.3.0",
     "prettier": "^3.9.10",
     "typescript": "^5.9.3",
     "vite": "^7.1.0",

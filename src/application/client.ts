@@ -1,5 +1,5 @@
 import type { ManagerAPI, Action } from './contracts';
-import { createJob } from './jobs';
+import { createJob, downloadIdentity } from './jobs';
 import {
   defaultSettings,
   runningStates,
@@ -30,7 +30,13 @@ import {
 } from './queue';
 import { enableCompletionSound, playCompletionSound } from './feedback';
 import { createSHA256 } from 'hash-wasm';
-import { captureOrigins } from '../shared/capture';
+import { captureOrigins, excludedHost } from '../shared/capture';
+import {
+  PageTransfers,
+  pageTransferKey,
+  validPageGrant,
+  type PageTransferGrant,
+} from './page-transfer';
 import { updateBrowserJob, browserNeedsReview } from '../domain/browser-download';
 import { nextRetryAt, retryDue, hasPendingTransfer } from '../domain/retry';
 import type { HlsReview } from '../engine/media/types';
@@ -56,6 +62,8 @@ class Manager implements ManagerAPI {
   private directory: FileSystemDirectoryHandle | null = null;
   private autoExports: Promise<unknown> = Promise.resolve();
   private armedQueues = new Set<string>();
+  /** Jobs the user started explicitly; they run outside queue and download-window schedules. */
+  private forced = new Set<string>();
   private browserTimer: ReturnType<typeof setTimeout> | null = null;
   private browserReading = false;
   private browserOffset = 0;
@@ -94,6 +102,14 @@ class Manager implements ManagerAPI {
       const traffic = await this.repository.getTraffic();
       const jobs = await this.repository.getJobs();
       for (const job of jobs) {
+        if (
+          !job.pageFile &&
+          job.note ===
+            'Created by the page in your browser; it has no web address to download again.'
+        ) {
+          job.pageFile = true;
+          await this.repository.putJob(job);
+        }
         job.speed = 0;
         job.connections = 0;
         job.connectionSpeeds = [];
@@ -151,12 +167,23 @@ class Manager implements ManagerAPI {
             void this.action(job.id, 'resume').catch((e) => this.publish({ error: safeError(e) }));
       });
       window.addEventListener('beforeunload', (event) => {
-        if (this.active.size) {
+        if (this.active.size || this.pageTransfers.receiving) {
           event.preventDefault();
         }
       });
       if (isExtension)
         chrome.runtime.onMessage.addListener((message, sender, respond) => {
+          if (typeof message?.type === 'string' && message.type.startsWith('blob-')) {
+            if (message.type === 'blob-ready') {
+              if (sender.id === chrome.runtime.id && !sender.tab) respond({ ok: true });
+              return;
+            }
+            if (sender.id !== chrome.runtime.id || !sender.tab) return;
+            void this.pageTransfers.receive(message, sender).then(respond, (error) => {
+              respond({ ok: false, error: safeError(error) });
+            });
+            return true;
+          }
           if (
             !trustedSender(sender) &&
             !(
@@ -211,6 +238,78 @@ class Manager implements ManagerAPI {
       });
     });
   }
+  private pageTransfers = new PageTransfers({
+    authorize: async (token, sender) => {
+      if (!this.owned || !this.snapshot.ready) throw new Error('The manager is not ready.');
+      const key = pageTransferKey(token);
+      const grant = (await chrome.storage.session.get(key))[key] as PageTransferGrant | undefined;
+      if (!grant || !validPageGrant(grant, sender))
+        throw new Error('Unknown transfer or wrong source document.');
+      const settings = await this.repository.getSettings();
+      const tab = await chrome.tabs.get(grant.tabId).catch(() => null);
+      const origin = new URL(grant.source).origin;
+      if (
+        !settings.interception ||
+        !tab?.url ||
+        excludedHost(new URL(grant.source).hostname, settings.excludedHosts) ||
+        excludedHost(new URL(tab.url).hostname, settings.excludedHosts) ||
+        !(await chrome.permissions.contains({ origins: [origin + '/*'] }))
+      )
+        throw new Error('Page file access is no longer allowed.');
+      return grant;
+    },
+    consume: (token) => chrome.storage.session.remove(pageTransferKey(token)),
+    open: async () => {
+      const id = crypto.randomUUID();
+      const root = await navigator.storage.getDirectory();
+      const directory = await root.getDirectoryHandle('partials', { create: true });
+      const handle = await directory.getFileHandle(id, { create: true });
+      const writable = await handle.createWritable();
+      return {
+        id,
+        write: (bytes) => writable.write(bytes as Uint8Array<ArrayBuffer>),
+        close: () => writable.close(),
+        abort: () => writable.abort().catch(() => undefined),
+      };
+    },
+    remove: removePartial,
+    finish: async (id, grant, filename) => {
+      const file = await partialFile(id);
+      if (file.size !== grant.size) throw new Error('Received data did not match its size.');
+      const hasher = await createSHA256();
+      hasher.init();
+      const reader = file.stream().getReader();
+      try {
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          hasher.update(part.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      const sha256 = hasher.digest('hex');
+      const job = createJob({ url: grant.source, filename }, this.snapshot.settings);
+      Object.assign(job, {
+        id,
+        pageFile: true,
+        state: 'ASSEMBLING',
+        total: file.size,
+        downloaded: file.size,
+        sha256,
+        segments: file.size ? [{ start: 0, end: file.size - 1, hash: sha256 }] : [],
+        note: 'Created by the page in your browser. Create it again on its website to download a new copy.',
+        timeline: [
+          { at: Date.now(), event: 'Received from the page' },
+          { at: Date.now(), event: 'Verified' },
+        ],
+      });
+      await this.repository.putJob(job);
+      this.publish({ jobs: [job, ...this.snapshot.jobs] });
+      this.scheduleAutoSave(job.id);
+      return job.id;
+    },
+  });
   private ensureOwner() {
     if (!this.owned) throw new Error('Open the manager tab that owns the engine.');
     if (!this.snapshot.ready || !this.worker)
@@ -395,32 +494,56 @@ class Manager implements ManagerAPI {
     this.ensureOwner();
     const url = validateUrl(input.url);
     this.validateQueue(input.queueId);
+    const job = createJob(input, this.snapshot.settings);
     if (isExtension) {
-      const reviewed = input.media === 'hls' ? this.reviewedOrigins.get(url.href) : undefined;
+      const reviewed =
+        input.media === 'hls'
+          ? this.reviewedOrigins.get(JSON.stringify([url.href, job.media?.audioUrl ?? null]))
+          : undefined;
       const origins = reviewed && Date.now() - reviewed.at < 300000 ? reviewed.origins : [];
       const granted = await chrome.permissions.request({
-        origins: [...new Set([url.origin, ...origins])].map((origin) =>
-          originPattern(validateUrl(origin).origin),
-        ),
+        origins: [
+          ...new Set([
+            url.origin,
+            ...(job.media?.audioUrl ? [new URL(job.media.audioUrl).origin] : []),
+            ...origins,
+          ]),
+        ].map((origin) => originPattern(validateUrl(origin).origin)),
       });
       if (!granted) throw new Error('Website access is required to download from this origin.');
     }
     if (
       this.snapshot.jobs.some(
-        (j) => j.url === url.href && hasPendingTransfer(j, this.snapshot.settings),
+        (j) =>
+          downloadIdentity(j.url, j.media?.audioUrl) ===
+            downloadIdentity(job.url, job.media?.audioUrl) &&
+          hasPendingTransfer(j, this.snapshot.settings),
       )
     )
       throw new Error('This URL already has a pending download.');
-    const job = createJob(input, this.snapshot.settings);
     await this.repository.putJob(job);
     this.publish({ jobs: [job, ...this.snapshot.jobs] });
     await this.pump();
   }
-  async inspectHls(raw: string, signal?: AbortSignal): Promise<HlsReview> {
+  async inspectHls(
+    raw: string,
+    signal?: AbortSignal,
+    rawAudio?: string,
+    useBrowserCookies = false,
+  ): Promise<HlsReview> {
     this.ensureOwner();
     if (!isExtension) throw new Error('HLS review requires the installed Chrome extension.');
     const url = validateUrl(raw).href;
-    if (!(await chrome.permissions.request({ origins: [originPattern(url)] })))
+    const audioUrl = rawAudio === undefined ? undefined : validateUrl(rawAudio).href;
+    if (audioUrl && new URL(url).protocol === 'https:' && new URL(audioUrl).protocol === 'http:')
+      throw new Error('An insecure HLS audio address was blocked.');
+    if (
+      !(await chrome.permissions.request({
+        origins: [
+          ...new Set([url, ...(audioUrl ? [audioUrl] : [])].map((value) => originPattern(value))),
+        ],
+      }))
+    )
       throw new Error('Website access was declined.');
     if (signal?.aborted) throw new DOMException('Media review canceled.', 'AbortError');
     const requestId = crypto.randomUUID();
@@ -451,13 +574,23 @@ class Manager implements ManagerAPI {
           );
       });
       signal?.addEventListener('abort', abort, { once: true });
-      this.worker!.postMessage({ type: 'inspect-hls', requestId, url });
+      this.worker!.postMessage({
+        type: 'inspect-hls',
+        requestId,
+        url,
+        audioUrl,
+        useBrowserCookies,
+      });
     });
     if (review.kind === 'media') {
-      if (this.reviewedOrigins.size >= 16)
-        this.reviewedOrigins.delete(this.reviewedOrigins.keys().next().value!);
-      for (const key of new Set([url, review.url]))
+      for (const key of new Set([
+        JSON.stringify([url, audioUrl ?? null]),
+        JSON.stringify([review.url, review.audioUrl ?? null]),
+      ])) {
+        if (!this.reviewedOrigins.has(key) && this.reviewedOrigins.size >= 16)
+          this.reviewedOrigins.delete(this.reviewedOrigins.keys().next().value!);
         this.reviewedOrigins.set(key, { at: Date.now(), origins: review.origins });
+      }
     }
     return review;
   }
@@ -472,14 +605,15 @@ class Manager implements ManagerAPI {
     const seen = new Set(
       this.snapshot.jobs
         .filter((job) => hasPendingTransfer(job, this.snapshot.settings))
-        .map((job) => job.url),
+        .map((job) => downloadIdentity(job.url, job.media?.audioUrl)),
     );
     const jobs: DownloadJob[] = [];
     for (const input of inputs) {
       this.validateQueue(input.queueId);
       const job = createJob(input, this.snapshot.settings);
-      if (!seen.has(job.url)) {
-        seen.add(job.url);
+      const identity = downloadIdentity(job.url, job.media?.audioUrl);
+      if (!seen.has(identity)) {
+        seen.add(identity);
         jobs.push(job);
       }
     }
@@ -487,7 +621,13 @@ class Manager implements ManagerAPI {
     if (
       isExtension &&
       !(await chrome.permissions.request({
-        origins: [...new Set(jobs.map((job) => originPattern(job.url)))],
+        origins: [
+          ...new Set(
+            jobs
+              .flatMap((job) => [job.url, ...(job.media?.audioUrl ? [job.media.audioUrl] : [])])
+              .map((value) => originPattern(value)),
+          ),
+        ],
       }))
     )
       throw new Error('Website access was declined. No downloads were added.');
@@ -499,6 +639,7 @@ class Manager implements ManagerAPI {
   async replaceSource(id: string, rawUrl: string) {
     this.ensureOwner();
     const job = this.job(id);
+    if (job.pageFile) throw new Error('Create this file again on its website.');
     if (
       !['PAUSED', 'FAILED', 'WAITING_FOR_NETWORK', 'QUEUED'].includes(job.state) ||
       this.active.has(id) ||
@@ -607,6 +748,8 @@ class Manager implements ManagerAPI {
       return;
     }
     if (action === 'cancel' && job.state === 'COMPLETED') return;
+    if (job.pageFile && ['start', 'resume', 'retry'].includes(action))
+      throw new Error('Create this file again on its website, or save the retained copy.');
     if (['pause', 'cancel', 'remove', 'resume', 'retry', 'start'].includes(action)) {
       const wasScheduled = job.queueRetryAt != null || !!job.retryFailure;
       job.queueRetryAt = null;
@@ -620,7 +763,12 @@ class Manager implements ManagerAPI {
       }
     }
     if (isExtension && job.permissionOrigin && ['resume', 'retry', 'start'].includes(action)) {
-      if (!(await chrome.permissions.request({ origins: [originPattern(job.permissionOrigin)] })))
+      const origins = [originPattern(job.permissionOrigin)];
+      // Access may already be granted elsewhere (popup); request() then needs no user gesture.
+      if (
+        !(await chrome.permissions.contains({ origins })) &&
+        !(await chrome.permissions.request({ origins }))
+      )
         throw new Error('Website access was declined.');
       job.permissionOrigin = null;
     }
@@ -629,6 +777,7 @@ class Manager implements ManagerAPI {
       await this.persist(job);
     }
     if (action === 'pause') {
+      this.forced.delete(id);
       if (this.active.has(id) || this.starting.has(id)) {
         await this.stop(job);
         return;
@@ -655,7 +804,12 @@ class Manager implements ManagerAPI {
           await removePartial(id);
           if (job.media) {
             await this.repository.clearMediaCheckpoints(id);
-            job.media = { kind: 'hls' };
+            job.media = {
+              kind: 'hls',
+              ...(job.media.audioUrl
+                ? { audioUrl: job.media.audioUrl, audioLabel: job.media.audioLabel }
+                : {}),
+            };
           }
           job.segments = [];
           job.downloaded = 0;
@@ -683,17 +837,25 @@ class Manager implements ManagerAPI {
       return;
     }
     if (action === 'redownload') {
+      if (job.pageFile)
+        throw new Error(
+          'Create this file again on its website. The page address is not a download link.',
+        );
       await this.add({
         url: job.url,
+        useBrowserCookies: job.useBrowserCookies,
         filename: job.filename,
         expectedHash: job.expectedHash ?? undefined,
         media: job.media?.kind,
+        audioUrl: job.media?.audioUrl,
+        audioLabel: job.media?.audioLabel,
       });
       return;
     }
     if (action === 'start') {
       job.scheduledAt = null;
       job.priority = 10;
+      this.forced.add(id);
     }
     if (['PAUSED', 'FAILED', 'CANCELED', 'WAITING_FOR_NETWORK'].includes(job.state)) {
       job.capturePending = false;
@@ -783,6 +945,7 @@ class Manager implements ManagerAPI {
           !bounded(queue.maxActive, 1, 8) ||
           !bounded(queue.speedLimit, 0, 1e12) ||
           typeof queue.paused !== 'boolean' ||
+          (queue.manualRun !== undefined && typeof queue.manualRun !== 'boolean') ||
           (queue.retryAttempts !== undefined &&
             (!Number.isInteger(queue.retryAttempts) || !bounded(queue.retryAttempts, 0, 20))) ||
           (queue.retryDelaySeconds !== undefined &&
@@ -941,7 +1104,7 @@ class Manager implements ManagerAPI {
     await this.persist(job);
     await this.pump();
   }
-  async exportFile(id: string) {
+  async exportFile(id: string, saveAs = false) {
     this.ensureOwner();
     const job = this.job(id);
     if (job.engine === 'browser')
@@ -950,6 +1113,31 @@ class Manager implements ManagerAPI {
       );
     if (!job.sha256 || !['ASSEMBLING', 'COMPLETED', 'FAILED'].includes(job.state))
       throw new Error('The file must finish verification before saving.');
+    if (!saveAs) {
+      // Save straight into the configured location (category folder), without a dialog.
+      if (this.snapshot.settings.saveLocation === 'folder' && this.directory) {
+        // Called before any other await so the click still counts as user activation.
+        const granted = await (
+          this.directory as FileSystemDirectoryHandle & {
+            requestPermission(options: { mode: 'readwrite' }): Promise<PermissionState>;
+          }
+        ).requestPermission({ mode: 'readwrite' });
+        if (granted !== 'granted') throw new Error('Folder access was declined.');
+        await this.refreshDestination();
+      }
+      // Same as writeExport: verified data is already staged, so a finished job can be saved again.
+      if (job.state !== 'ASSEMBLING') job.state = 'ASSEMBLING';
+      try {
+        await this.saveToDestination(id, job);
+      } catch (error) {
+        if (job.state === 'ASSEMBLING') {
+          job.error = 'Save could not finish. Verified data is retained. ' + safeError(error);
+          await this.persist(job);
+        }
+        throw error;
+      }
+      return;
+    }
     // Invoke picker before awaiting anything to preserve transient user activation.
     const picker = (
       window as Window & {
@@ -1037,11 +1225,15 @@ class Manager implements ManagerAPI {
         showDirectoryPicker?: (options: {
           mode: 'readwrite';
           id: string;
+          startIn?: string;
         }) => Promise<FileSystemDirectoryHandle>;
       }
     ).showDirectoryPicker;
-    if (!picker) throw new Error('Choosing a download folder requires desktop Chrome.');
-    const handle = await picker({ mode: 'readwrite', id: 'flux-downloads' });
+    if (!picker)
+      throw new Error(
+        'This browser has no folder picker. In Brave, open brave://flags/#file-system-access-api, set it to Enabled, restart, and try again.',
+      );
+    const handle = await picker({ mode: 'readwrite', id: 'flux-downloads', startIn: 'downloads' });
     await this.repository.putDestination(handle);
     this.directory = handle;
     await this.refreshDestination();
@@ -1060,50 +1252,18 @@ class Manager implements ManagerAPI {
         const job = this.snapshot.jobs.find((item) => item.id === id);
         const settings = this.snapshot.settings;
         if (!job || job.state !== 'ASSEMBLING' || !settings.autoSave) return;
-        if (settings.saveLocation !== 'folder') {
-          if (!isExtension) return;
-          try {
-            await this.saveToDownloads(id, job, downloadsRelativePath(job.filename, settings));
-          } catch (error) {
-            if (this.snapshot.jobs.includes(job) && job.state === 'ASSEMBLING') {
-              job.error =
-                'Automatic save could not finish. Verified data is retained. ' + safeError(error);
-              await this.persist(job);
-            }
+        if (settings.saveLocation === 'folder') {
+          if (!this.directory) return;
+          if (!(await this.refreshDestination())) {
+            if (!this.snapshot.jobs.includes(job)) return;
+            job.note =
+              'Choose the download folder again to restore saving permission. Verified data is retained.';
+            await this.persist(job);
+            return;
           }
-          return;
-        }
-        if (!this.directory) return;
-        if (!(await this.refreshDestination())) {
-          if (!this.snapshot.jobs.includes(job)) return;
-          job.note =
-            'Choose the download folder again to restore saving permission. Verified data is retained.';
-          await this.persist(job);
-          return;
-        }
+        } else if (!isExtension) return;
         try {
-          let directory = this.directory;
-          if (settings.saveByCategory)
-            for (const part of categoryFolderName(job.category, settings).split('/'))
-              directory = await directory.getDirectoryHandle(part, { create: true });
-          const dot = job.filename.lastIndexOf('.');
-          const stem = dot > 0 ? job.filename.slice(0, dot) : job.filename;
-          const extension = dot > 0 ? job.filename.slice(dot) : '';
-          let filename = job.filename;
-          for (let collision = 0; collision < 10000; collision++) {
-            try {
-              await directory.getFileHandle(filename);
-              filename = `${stem.slice(0, 150)} (${collision + 1})${extension}`;
-            } catch (error) {
-              if (error instanceof DOMException && error.name === 'NotFoundError') break;
-              throw error;
-            }
-            if (collision === 9999)
-              throw new Error('Too many files share this filename. Use Save As.');
-          }
-          if (!this.snapshot.jobs.includes(job) || job.state !== 'ASSEMBLING') return;
-          const handle = await directory.getFileHandle(filename, { create: true });
-          await this.writeExport(id, handle, job);
+          await this.saveToDestination(id, job);
         } catch (error) {
           if (this.snapshot.jobs.includes(job) && job.state === 'ASSEMBLING') {
             job.error =
@@ -1116,6 +1276,50 @@ class Manager implements ManagerAPI {
         this.publish({ error: 'Automatic save needs attention. ' + safeError(error) }),
       );
   }
+  /** Saves a verified file to the configured location (Downloads or chosen folder), no dialog. */
+  private async saveToDestination(id: string, job: DownloadJob) {
+    const settings = this.snapshot.settings;
+    if (settings.saveLocation !== 'folder') {
+      await this.saveToDownloads(id, job, downloadsRelativePath(job.filename, settings));
+      return;
+    }
+    if (!this.directory) throw new Error('Choose a download folder in Settings first.');
+    let directory = this.directory;
+    if (settings.saveByCategory)
+      for (const part of categoryFolderName(job.category, settings).split('/'))
+        directory = await directory.getDirectoryHandle(part, { create: true });
+    const dot = job.filename.lastIndexOf('.');
+    const stem = dot > 0 ? job.filename.slice(0, dot) : job.filename;
+    const extension = dot > 0 ? job.filename.slice(dot) : '';
+    let filename = job.filename;
+    for (let collision = 0; collision < 10000; collision++) {
+      try {
+        await directory.getFileHandle(filename);
+        filename = `${stem.slice(0, 150)} (${collision + 1})${extension}`;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') break;
+        throw error;
+      }
+      if (collision === 9999) throw new Error('Too many files share this filename. Use Save As.');
+    }
+    if (!this.snapshot.jobs.includes(job) || job.state !== 'ASSEMBLING') return;
+    const handle = await directory.getFileHandle(filename, { create: true });
+    await this.writeExport(id, handle, job);
+  }
+  private async setSaveDialogDetected(value: boolean) {
+    if (!!this.snapshot.settings.saveDialogDetected === value) return;
+    const settings = { ...(await this.repository.getSettings()), saveDialogDetected: value };
+    await this.repository.putSettings(settings);
+    this.publish({ settings });
+  }
+  /** Turns automatic saving on or off from the main page. */
+  async setAutoSave(enabled: boolean) {
+    this.ensureOwner();
+    await this.updateSettings({ ...this.snapshot.settings, autoSave: enabled });
+    if (enabled)
+      for (const job of this.snapshot.jobs)
+        if (job.state === 'ASSEMBLING') this.scheduleAutoSave(job.id);
+  }
   /** Hands the verified staged file to Chrome, which writes it under its Downloads folder. */
   private async saveToDownloads(id: string, job: DownloadJob, relativePath: string) {
     if (!job.sha256 || job.state !== 'ASSEMBLING') return;
@@ -1123,10 +1327,29 @@ class Manager implements ManagerAPI {
     if (file.size !== job.total) throw new Error('Stored file size changed. Save stopped.');
     if (this.job(id) !== job || job.state !== 'ASSEMBLING') return;
     transition(job, 'EXPORTING');
-    await this.persist(job);
-    // An untyped blob lets Chrome swap the extension (e.g. .bin -> .txt); octet-stream keeps it.
-    const url = URL.createObjectURL(new Blob([file], { type: 'application/octet-stream' }));
+    let url: string | null = null;
+    let destinationCommitted = false;
     try {
+      await this.persist(job);
+      // This path gives Chrome a file-backed Blob instead of a writable stream.
+      // Recheck that exact immutable File snapshot before Chrome can commit it.
+      const hasher = await createSHA256();
+      hasher.init();
+      const reader = file.stream().getReader();
+      try {
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          hasher.update(part.value);
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
+      if (hasher.digest('hex') !== job.sha256)
+        throw new Error('Stored content failed SHA-256 verification. No browser save was started.');
+      // An untyped blob lets Chrome swap the extension (e.g. .bin -> .txt); octet-stream keeps it.
+      url = URL.createObjectURL(new Blob([file], { type: 'application/octet-stream' }));
       // Read by the background onDeterminingFilename listener, which otherwise renames the file.
       await chrome.storage.session.set({ [`save:${url}`]: relativePath });
       const downloadId = await chrome.downloads.download({
@@ -1135,20 +1358,33 @@ class Manager implements ManagerAPI {
         conflictAction: 'uniquify',
         saveAs: false,
       });
+      // Browsers set to "ask where to save" hold the save in a dialog with no target filename.
+      let dialogSeen = false;
+      const dialogProbe = setTimeout(() => {
+        void chrome.downloads.search({ id: downloadId }).then(([current]) => {
+          if (current?.state === 'in_progress' && !current.filename) {
+            dialogSeen = true;
+            void this.setSaveDialogDetected(true);
+          }
+        });
+      }, 1500);
       const item = await new Promise<chrome.downloads.DownloadItem>((resolve, reject) => {
         const check = async () => {
           const current = (await chrome.downloads.search({ id: downloadId }))[0];
           if (!current) return finish(new Error('Chrome removed the save before it finished.'));
           if (current.state === 'complete') finish(undefined, current);
-          else if (current.state === 'interrupted')
+          else if (current.state === 'interrupted') {
+            if (current.error === 'USER_CANCELED') void this.setSaveDialogDetected(true);
             finish(
               new Error(`Chrome could not write the file (${current.error ?? 'interrupted'}).`),
             );
+          }
         };
         const listener = (change: chrome.downloads.DownloadDelta) => {
           if (change.id === downloadId && change.state) void check().catch(finish);
         };
         const finish = (error?: unknown, value?: chrome.downloads.DownloadItem) => {
+          clearTimeout(dialogProbe);
           chrome.downloads.onChanged.removeListener(listener);
           if (value) resolve(value);
           else reject(error);
@@ -1156,6 +1392,9 @@ class Manager implements ManagerAPI {
         chrome.downloads.onChanged.addListener(listener);
         void check().catch(finish);
       });
+      destinationCommitted = true;
+      if (!dialogSeen && this.snapshot.settings.saveDialogDetected)
+        await this.setSaveDialogDetected(false);
       job.savedDownloadId = item.id;
       transition(job, 'COMPLETED');
       job.exported = true;
@@ -1165,15 +1404,24 @@ class Manager implements ManagerAPI {
       job.note = folder ? `Saved to Downloads/${folder}` : 'Saved to your Downloads folder';
       await this.persist(job);
     } catch (error) {
+      if (destinationCommitted) {
+        job.error =
+          'File saved successfully, but history could not be updated. ' + safeError(error);
+        this.publish();
+        throw new Error(job.error);
+      }
       transition(job, 'ASSEMBLING', 'Save interrupted; verified data retained');
       throw error;
     } finally {
-      URL.revokeObjectURL(url);
-      await chrome.storage.session.remove(`save:${url}`).catch(() => undefined);
+      if (url) {
+        URL.revokeObjectURL(url);
+        await chrome.storage.session.remove(`save:${url}`).catch(() => undefined);
+      }
     }
   }
   async browserDownload(id: string) {
     const job = this.job(id);
+    if (job.pageFile) throw new Error('Create this file again on its website.');
     if (job.media)
       throw new Error(
         'A browser transfer would save only the playlist. Use Flux stream assembly for this video.',
@@ -1223,11 +1471,13 @@ class Manager implements ManagerAPI {
   }
   async cleanup() {
     this.ensureOwner();
-    await cleanupOrphans(new Set(this.snapshot.jobs.map((j) => j.id)));
-    const cutoff = Date.now() - this.snapshot.settings.retentionDays * 86400000;
-    for (const job of [...this.snapshot.jobs])
-      if (job.exported && job.updatedAt < cutoff) await this.action(job.id, 'remove');
-    await this.refreshStorage();
+    await this.pageTransfers.whenIdle(async () => {
+      await cleanupOrphans(new Set(this.snapshot.jobs.map((j) => j.id)));
+      const cutoff = Date.now() - this.snapshot.settings.retentionDays * 86400000;
+      for (const job of [...this.snapshot.jobs])
+        if (job.exported && job.updatedAt < cutoff) await this.action(job.id, 'remove');
+      await this.refreshStorage();
+    });
   }
   async requestPersistence() {
     return navigator.storage.persist();
@@ -1285,8 +1535,13 @@ class Manager implements ManagerAPI {
           transition(job, 'QUEUED', 'Download allowance renewed');
           await this.persist(job);
         }
-      if (!inTimeWindow(this.snapshot.settings)) {
-        const active = [...this.active];
+      for (const id of this.forced) {
+        const job = this.snapshot.jobs.find((item) => item.id === id);
+        if (!job || (!this.active.has(id) && job.state !== 'QUEUED')) this.forced.delete(id);
+      }
+      const windowOpen = inTimeWindow(this.snapshot.settings);
+      if (!windowOpen) {
+        const active = [...this.active].filter((id) => !this.forced.has(id));
         await Promise.all(active.map((id) => this.stop(this.job(id))));
         for (const id of active) {
           const job = this.snapshot.jobs.find((j) => j.id === id);
@@ -1308,9 +1563,13 @@ class Manager implements ManagerAPI {
           this.scheduled = setTimeout(() => void this.pump(), Math.max(0, next - Date.now()));
           if (isExtension) await chrome.alarms.create('flux-queue', { when: next });
         }
-        return;
+        if (!this.forced.size) return;
+        if (this.scheduled) clearTimeout(this.scheduled);
+        this.scheduled = null;
       }
+      await this.latchQueueRuns();
       for (const id of [...this.active]) {
+        if (this.forced.has(id)) continue;
         const job = this.job(id);
         const queue = this.snapshot.settings.queues.find((item) => item.id === job.queueId);
         if (queue && !queueAvailable(queue)) {
@@ -1330,7 +1589,7 @@ class Manager implements ManagerAPI {
       }
       await this.repeatQueues();
       for (const job of orderedQueue(this.snapshot.jobs)) {
-        if (job.engine === 'browser') continue;
+        if (job.engine === 'browser' || job.pageFile) continue;
         if (this.holdQueue) break;
         if (
           this.snapshot.jobs.find((j) => j.id === job.id) !== job ||
@@ -1338,9 +1597,12 @@ class Manager implements ManagerAPI {
         )
           continue;
         if (this.active.size >= this.snapshot.settings.maxActive) break;
+        const forced = this.forced.has(job.id);
+        if (!windowOpen && !forced) continue;
         const queue = this.snapshot.settings.queues.find((item) => item.id === job.queueId);
         if (
           queue &&
+          !forced &&
           (!queueAvailable(queue) ||
             [...this.active].filter((id) => this.job(id).queueId === queue.id).length >=
               queue.maxActive)
@@ -1464,6 +1726,31 @@ class Manager implements ManagerAPI {
       }
     }
   }
+  /** A queue with only a start time keeps running past midnight until its files finish. */
+  private async latchQueueRuns() {
+    const due = new Set(
+      this.snapshot.settings.queues
+        .filter(
+          (queue) =>
+            !queue.paused &&
+            !queue.manualRun &&
+            queue.windowStart &&
+            !queue.windowEnd &&
+            queueAvailable(queue) &&
+            this.snapshot.jobs.some((job) => job.queueId === queue.id && job.state === 'QUEUED'),
+        )
+        .map((queue) => queue.id),
+    );
+    if (!due.size) return;
+    const settings = {
+      ...this.snapshot.settings,
+      queues: this.snapshot.settings.queues.map((queue) =>
+        due.has(queue.id) ? { ...queue, manualRun: true } : queue,
+      ),
+    };
+    await this.repository.putSettings(settings);
+    this.publish({ settings });
+  }
   private async completeQueues() {
     for (const queue of this.snapshot.settings.queues) {
       const id = queue.id;
@@ -1475,6 +1762,16 @@ class Manager implements ManagerAPI {
       )
         continue;
       const notify = this.armedQueues.delete(id);
+      if (queue.manualRun) {
+        const settings = {
+          ...this.snapshot.settings,
+          queues: this.snapshot.settings.queues.map((item) =>
+            item.id === id ? { ...item, manualRun: false } : item,
+          ),
+        };
+        await this.repository.putSettings(settings);
+        this.publish({ settings });
+      }
       if (notify && queue.notifyOnComplete && this.snapshot.settings.notifications && isExtension)
         await chrome.notifications
           .create({
@@ -1523,10 +1820,10 @@ class Manager implements ManagerAPI {
       const templates = [
         ...new Map(
           jobs
-            .filter((job) => job.engine !== 'browser')
+            .filter((job) => job.engine !== 'browser' && !job.pageFile)
             .filter((job) => job.state !== 'CANCELED')
             .sort((a, b) => a.createdAt - b.createdAt)
-            .map((job) => [job.url, job]),
+            .map((job) => [downloadIdentity(job.url, job.media?.audioUrl), job]),
         ).values(),
       ];
       if (!templates.length) continue;
@@ -1538,11 +1835,14 @@ class Manager implements ManagerAPI {
         ...createJob(
           {
             url: template.url,
+            useBrowserCookies: template.useBrowserCookies,
             filename: template.filename,
             priority: template.priority,
             speedLimit: template.speedLimit,
             expectedHash: template.expectedHash ?? undefined,
             media: template.media?.kind,
+            audioUrl: template.media?.audioUrl,
+            audioLabel: template.media?.audioLabel,
             queueId: queue.id,
           },
           this.snapshot.settings,

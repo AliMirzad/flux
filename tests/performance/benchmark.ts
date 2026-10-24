@@ -102,6 +102,8 @@ try {
       const settings = {
         ...defaultSettings,
         maxActive: 1,
+        // Timing ends at verification; auto-save would move the job past ASSEMBLING unseen.
+        autoSave: false,
         perHost: 16,
         maxConnections: mode === 'adaptive' ? 16 : Number(mode) || 1,
         mode: mode === 'adaptive' ? 'auto' : 'manual',

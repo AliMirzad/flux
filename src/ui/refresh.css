@@ -1,0 +1,493 @@
+/* Flux design refresh: soft mint surfaces, rounded cards, tinted icon tiles, light and dark.
+   Loaded after styles.css so it only restyles; layout and behaviour live in styles.css. */
+body {
+  background-color: var(--bg);
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
+}
+h1 {
+  font-size: 38px;
+  letter-spacing: -1.4px;
+  font-weight: 750;
+}
+h2 {
+  font-weight: 700;
+}
+input,
+select {
+  border-radius: 11px;
+  height: 44px;
+}
+input:focus,
+select:focus {
+  box-shadow: 0 0 0 4px var(--accent-tint);
+}
+select {
+  appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238ba39b' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.button {
+  border-radius: 11px;
+  padding: 11px 17px;
+  font-weight: 650;
+}
+.primary {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.secondary {
+  box-shadow: var(--shadow-soft);
+}
+.icon-button {
+  border-radius: 10px;
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Sidebar */
+.brand {
+  font-weight: 800;
+}
+.sidebar-caption {
+  font-weight: 700;
+}
+.nav-item {
+  border-radius: 11px;
+  min-height: 42px;
+  font-size: 13px;
+}
+.nav-item.selected {
+  background: var(--accent-tint);
+  font-weight: 650;
+}
+.nav-item.selected .nav-count {
+  background: var(--accent-tint);
+}
+.local-card {
+  background: var(--surface-2);
+  border-radius: 13px;
+}
+.local-card strong {
+  font-size: 11px;
+}
+.local-card span {
+  font-size: 10px;
+}
+
+/* Top bar */
+.topbar {
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.local-indicator {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 11px;
+  box-shadow: var(--shadow-soft);
+}
+.local-indicator i {
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+/* Banner cards (capture / saving) */
+.capture-setup {
+  position: relative;
+  overflow: hidden;
+  background: var(--hero);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 16px;
+  padding: 20px 22px;
+  box-shadow: var(--shadow-soft);
+}
+.capture-setup::after {
+  content: '';
+  position: absolute;
+  right: -40px;
+  bottom: -70px;
+  width: 360px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--accent-tint), transparent);
+  pointer-events: none;
+}
+.capture-setup > * {
+  position: relative;
+  z-index: 1;
+}
+.capture-setup > svg {
+  box-sizing: content-box;
+  width: 24px;
+  height: 24px;
+  padding: 11px;
+  border-radius: 14px;
+  background: var(--accent-tint);
+}
+.capture-setup strong {
+  font-size: 14px;
+}
+.capture-setup p {
+  font-size: 12.5px;
+}
+
+/* Page heading and stat tiles */
+.eyebrow {
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+.page-heading > .button {
+  padding: 13px 20px;
+  font-size: 13px;
+}
+.workspace-actions .button.secondary {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.stat-card {
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: center;
+  --tone: var(--accent);
+  --tone-soft: var(--accent-tint);
+}
+.stat-card:nth-child(2) {
+  --tone: var(--blue);
+  --tone-soft: var(--blue-soft);
+}
+.stat-card:nth-child(3) {
+  --tone: var(--purple);
+  --tone-soft: var(--purple-soft);
+}
+.stat-card:nth-child(4) {
+  --tone: var(--amber);
+  --tone-soft: var(--amber-soft);
+}
+.stat-label {
+  display: contents;
+  font-size: 12px;
+}
+.stat-label > svg {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  padding: 13px;
+  border-radius: 15px;
+  background: var(--tone-soft);
+  color: var(--tone);
+}
+.stat-label > span {
+  grid-column: 2;
+  font-weight: 600;
+  color: var(--tone);
+}
+.stat-value {
+  grid-column: 2;
+  font-size: 28px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+.stat-value small {
+  font-size: 12px;
+  margin-left: 7px;
+}
+.stat-foot {
+  grid-column: 2;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+/* Download list */
+.count-badge {
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 11px;
+}
+.search-box,
+.select-control {
+  border-radius: 11px;
+  height: 42px;
+  box-shadow: var(--shadow-soft);
+}
+.search-box input {
+  font-size: 13px;
+}
+.select-control select {
+  font-size: 12.5px;
+  height: 38px;
+  background-color: transparent;
+  background-position: right 2px center;
+  padding-right: 22px;
+}
+.text-button {
+  font-size: 12px;
+}
+.download-card {
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: var(--shadow-soft);
+}
+.download-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  box-shadow: var(--shadow);
+}
+.file-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+}
+.file-name {
+  font-size: 14px;
+  font-weight: 650;
+}
+.status {
+  font-size: 10px;
+  font-weight: 650;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.file-meta {
+  font-size: 11px;
+}
+.progress {
+  height: 7px;
+  border-radius: 999px;
+  margin: 13px 0 10px;
+}
+.progress > span {
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent));
+}
+.download-bottom {
+  font-size: 11.5px;
+}
+.empty-state {
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+.empty-icon {
+  border-radius: 22px;
+  background: var(--accent-tint);
+  width: 82px;
+  height: 82px;
+}
+.empty-state h3 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.empty-state p {
+  font-size: 12.5px;
+}
+.global-error,
+.error-message,
+.notice {
+  border-radius: 12px;
+}
+.notice {
+  font-size: 12px;
+}
+
+/* Modals */
+.modal {
+  border-radius: 22px;
+  border-color: var(--border);
+  box-shadow: 0 30px 100px #00000055;
+}
+.modal::backdrop {
+  background: color-mix(in srgb, var(--bg) 70%, #000a);
+  backdrop-filter: blur(8px);
+}
+.modal-header {
+  border-bottom: 0;
+  padding: 22px 26px 8px;
+}
+.modal-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 19px;
+  font-weight: 750;
+}
+.modal-header h2 > svg {
+  color: var(--accent);
+  fill: currentColor;
+}
+.form-stack label {
+  font-weight: 600;
+}
+.input-icon svg {
+  left: 14px;
+}
+.input-icon input {
+  padding-left: 40px;
+}
+.choice,
+.queue-schedule,
+.queue-files,
+.batch-preview {
+  border-radius: 13px;
+}
+.choice {
+  background: var(--surface-2);
+}
+.choice:has(input:checked) {
+  background: var(--accent-soft);
+}
+.choice > input[type='radio'] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--input);
+}
+.choice > input[type='radio']:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 38%, transparent 42%);
+}
+
+/* Settings: each section is a card with its own tinted icon tile. */
+.settings-form {
+  border-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 26px;
+  box-shadow: var(--shadow-soft);
+}
+.settings-section > div:first-child h3 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.settings-section > div:first-child h3::before {
+  content: '';
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 50% 50%, var(--accent) 0 4px, transparent 5px), var(--accent-tint);
+}
+.settings-section > div:first-child > p {
+  margin-left: 46px;
+  max-width: 220px;
+}
+.storage-settings {
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+}
+.switch-row > input {
+  width: 42px;
+  height: 24px;
+  padding: 3px;
+}
+.switch-row > input::before {
+  left: 3px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+}
+.switch-row > input:checked::before {
+  background: #fff;
+  transform: translateX(18px);
+}
+.switch-row strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+.switch-row small {
+  font-size: 11px;
+}
+.save-bar {
+  position: sticky;
+  bottom: 16px;
+}
+.save-bar .primary {
+  padding: 13px 22px;
+  box-shadow: var(--shadow);
+}
+.native-offer {
+  border-radius: 14px;
+}
+.workspace-note {
+  font-size: 11px;
+}
+@media (max-width: 900px) {
+  .stat-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  h1 {
+    font-size: 30px;
+  }
+}
+
+/* Compact download rows: big app icon, hairline progress, mint highlight while transferring. */
+.download-list {
+  gap: 10px;
+}
+.download-card {
+  padding: 14px 18px;
+  gap: 16px;
+}
+.download-card.is-active {
+  background: linear-gradient(90deg, var(--accent-tint), var(--surface) 70%);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.file-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+}
+.download-name-row {
+  margin-bottom: 2px;
+}
+.progress {
+  height: 5px;
+  margin: 8px 0 7px;
+}
+.download-card:not(.is-active) .progress > span {
+  background: var(--faint);
+  opacity: 0.55;
+}
+.download-card:not(.is-active) .progress {
+  background: var(--track);
+}
+.download-card.has-error .progress > span {
+  background: var(--danger);
+  opacity: 1;
+}
+.download-card .status.completed + *,
+.download-card .status {
+  letter-spacing: 0;
+}
+.row-actions .icon-button {
+  width: 36px;
+  height: 36px;
+}
+.row-actions .icon-button[aria-label^='Resume'],
+.row-actions .icon-button[aria-label^='Start'] {
+  background: var(--accent-tint);
+  border-radius: 50%;
+}

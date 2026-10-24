@@ -1,0 +1,177 @@
+/* Flux popup refresh; loaded after popup.css. */
+body:has(.popup-shell) {
+  min-height: 560px;
+}
+.popup-shell {
+  background: transparent;
+  padding-bottom: 4px;
+}
+.popup-header {
+  border-bottom: 0;
+  padding: 20px 22px 6px;
+}
+.popup-header .brand {
+  font-size: 30px;
+}
+.popup-header .icon-button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+}
+.popup-speed {
+  position: relative;
+  overflow: hidden;
+  margin: 12px 16px;
+  padding: 22px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 18px;
+  background: var(--hero);
+  box-shadow: var(--shadow-soft);
+}
+.popup-speed .eyebrow,
+.popup-speed > div,
+.popup-speed p {
+  position: relative;
+  z-index: 1;
+}
+.popup-speed .eyebrow {
+  font-size: 10px;
+  letter-spacing: 2.4px;
+  font-weight: 700;
+}
+.popup-speed > div {
+  font-size: 44px;
+  font-weight: 750;
+}
+.popup-speed small {
+  font-size: 18px;
+}
+.popup-speed p {
+  font-size: 12px;
+}
+.popup-spark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 58%;
+  height: 78%;
+  pointer-events: none;
+}
+.popup-capture-state {
+  margin: 0 16px 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 13px;
+  box-shadow: var(--shadow-soft);
+}
+.popup-capture-state > svg {
+  color: var(--accent);
+}
+.popup-list {
+  border-top: 0;
+  padding: 4px 22px 6px;
+}
+.popup-list h2 {
+  font-size: 14px;
+}
+.popup-job {
+  padding: 13px 0 14px;
+}
+.popup-job-heading strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+.popup-job-heading .icon-button {
+  border: 1px solid var(--border);
+  width: 34px;
+  height: 34px;
+  background: var(--surface);
+}
+.popup-job .progress {
+  height: 5px;
+  margin: 7px 0 9px;
+}
+.popup-job-meta {
+  font-size: 11px;
+}
+.popup-empty {
+  min-height: 190px;
+  margin-top: 8px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 18px;
+  background: var(--surface-2);
+  padding: 22px 16px;
+  text-align: center;
+}
+.popup-empty > svg {
+  box-sizing: content-box;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--accent-tint);
+  margin-bottom: 8px;
+}
+.popup-empty h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.popup-empty p {
+  font-size: 12.5px;
+}
+.popup-buttons {
+  padding: 14px 16px 12px;
+}
+.popup-buttons .button {
+  font-size: 13px;
+  padding: 12px 10px;
+}
+.popup-footer {
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  margin: 0 16px;
+  padding: 12px 6px;
+}
+.popup-credit {
+  font-size: 11px;
+}
+.queue-chooser {
+  background: var(--surface);
+  border-radius: 16px;
+}
+
+.popup-header > :last-child,
+.popup-header .icon-button + .icon-button {
+  margin-left: 8px;
+}
+.popup-header {
+  gap: 0;
+}
+.popup-header .brand {
+  margin-right: auto;
+}
+.state-chevron {
+  color: var(--muted);
+}
+.popup-job {
+  position: relative;
+  padding-left: 58px;
+}
+.popup-job .file-icon {
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+.popup-job-meta b {
+  font-weight: 600;
+}
+
+.popup-spark {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 40%);
+  mask-image: linear-gradient(to right, transparent, #000 40%);
+}

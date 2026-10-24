@@ -1,6 +1,7 @@
 import type { DownloadJob, Settings } from '../domain/model';
 import type { RedirectPolicy } from './network/policy';
 import type { MediaCheckpoint } from './media/types';
+import type { TransportPort } from './media/transmux';
 export interface ByteStore {
   open(id: string): Promise<void>;
   write(offset: number, data: Uint8Array): Promise<void>;
@@ -25,6 +26,7 @@ export interface EngineOptions {
   reservePayload?: (bytes: number, signal: AbortSignal) => Promise<void>;
   accountPayload?: (bytes: number, signal: AbortSignal) => Promise<void>;
   redirectPolicy?: RedirectPolicy;
+  transportFactory?: (signal: AbortSignal) => TransportPort;
   mediaCheckpoints?: {
     load(): Promise<MediaCheckpoint[]>;
     save(job: DownloadJob, record: MediaCheckpoint): Promise<void>;

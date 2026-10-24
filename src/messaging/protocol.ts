@@ -1,7 +1,13 @@
 import type { DownloadJob, Settings } from '../domain/model';
 import type { HlsReview } from '../engine/media/types';
 export type WorkerCommand =
-  | { type: 'inspect-hls'; requestId: string; url: string }
+  | {
+      type: 'inspect-hls';
+      requestId: string;
+      url: string;
+      audioUrl?: string;
+      useBrowserCookies?: boolean;
+    }
   | { type: 'cancel-hls-review'; requestId: string }
   | { type: 'start'; job: DownloadJob; settings: Settings }
   | { type: 'pause'; id: string }

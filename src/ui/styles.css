@@ -16,6 +16,16 @@
 .capture-setup > div {
   flex: 1;
 }
+.capture-setup.warning {
+  border-color: var(--warning, #e0a43a);
+  background: color-mix(in srgb, var(--warning, #e0a43a) 8%, transparent);
+}
+.capture-setup.warning > svg {
+  color: var(--warning, #e0a43a);
+}
+.capture-setup + .capture-setup {
+  margin-top: -12px;
+}
 .capture-setup p {
   font-size: 12px;
   margin-top: 4px;
@@ -1737,15 +1747,90 @@ label > select {
 .queue-days {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 6px;
+}
+.day-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.day-chip input {
+  inset: 0;
+  margin: 0;
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+}
+.day-chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.day-chip:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.queue-info {
+  min-width: 0;
+  flex: 1;
+}
+.queue-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.queue-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.queue-status.live {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.queue-status.wait {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.queue-status.off {
+  background: var(--track);
+  color: var(--muted);
+}
+.queue-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--muted);
+}
+.queue-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 9px;
 }
-.queue-days legend {
-  padding: 0 6px;
+.queue-advanced summary {
+  cursor: pointer;
   color: var(--muted);
   font-size: 12px;
+  margin-bottom: 10px;
+}
+.queue-hint {
+  color: var(--amber);
 }
 
 .browser-transport {
@@ -1764,4 +1849,146 @@ label > select {
 .sidebar-credit strong {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* Plain-language scheduling choices in Settings and the add/edit dialogs. */
+.choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.choice-group > strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.choice input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+.choice small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.inline-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.inline-fields > label {
+  flex: 1;
+  min-width: 140px;
+}
+.start-choice {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.start-choice > label {
+  flex: 1;
+  min-width: 180px;
+}
+.bulk-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong);
+}
+.bulk-select {
+  width: auto;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.bulk-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bulk-time input {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.button.small {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.queue-files {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.queue-files-empty {
+  flex-basis: 100%;
+}
+.queue-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.queue-file:last-of-type {
+  border-bottom: 0;
+}
+.queue-file-info {
+  min-width: 0;
+  flex: 1;
+}
+.queue-file-info strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-file-info small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.queue-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Radio/checkbox inside choice cards must not inherit the full-width text-field style. */
+.choice > input,
+.choice-group input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  margin: 1px 0 0;
+  box-shadow: none;
+}
+.choice > span {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  color: var(--text);
+  font-weight: 500;
+}
+.choice small {
+  font-weight: 400;
 }

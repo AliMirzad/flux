@@ -1,6 +1,6 @@
 # Chrome Web Store readiness
 
-Applies to 0.6.0. This is a release gate, not a claim of approval. The local package may be evaluated unpacked before submission. Store review and publisher actions are external steps.
+Applies to 0.10.0. This is a release gate, not a claim of approval. The local package may be evaluated unpacked before submission. Store review and publisher actions are external steps.
 
 ## Required before submission
 

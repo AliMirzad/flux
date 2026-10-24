@@ -1,8 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { parseDownloadList, serializeDownloadList } from '../../src/application/lists';
+import {
+  buildNumberPattern,
+  parseDownloadList,
+  serializeDownloadList,
+} from '../../src/application/lists';
 import { createJob } from '../../src/application/jobs';
 
 describe('reviewable batch download lists', () => {
+  it('excludes received page files and never imports browser-session authorization', () => {
+    const page = {
+      ...createJob({ url: 'https://example.org/page', useBrowserCookies: true }),
+      pageFile: true,
+    };
+    expect(JSON.parse(serializeDownloadList([page])).items).toEqual([]);
+    const input = parseDownloadList(
+      JSON.stringify([{ url: page.url, useBrowserCookies: true, pageFile: true }]),
+    )[0]!;
+    expect(createJob(input).useBrowserCookies).toBe(false);
+    expect(createJob(input)).not.toHaveProperty('pageFile');
+  });
   it('imports comments, tab-separated names and padded number patterns with URL deduplication', () => {
     const list = parseDownloadList(
       '# archive\nhttps://example.org/file[001:003].zip\nhttps://example.org/file002.zip\nhttps://example.org/manual.pdf\tReport.pdf',
@@ -40,8 +56,64 @@ describe('reviewable batch download lists', () => {
       'https://example.org/[1:501].zip',
       'https://example.org/[5:1].zip',
       JSON.stringify([{ url: 'https://example.org/a', expectedHash: 'wrong' }]),
+      JSON.stringify({
+        format: 'flux-download-list',
+        version: 4,
+        items: [{ url: 'https://example.org/a' }],
+      }),
+      JSON.stringify({ format: 'other-format', version: 1, items: [] }),
     ])
       expect(() => parseDownloadList(text)).toThrow();
     expect(() => parseDownloadList(' '.repeat(2 * 1024 * 1024 + 1))).toThrow(/2 MiB/);
+  });
+  it('round-trips HLS type using version 2 without restoring byte or retry state', () => {
+    const job = createJob({ url: 'https://example.org/video.m3u8', media: 'hls' });
+    job.media!.planHash = 'a'.repeat(64);
+    const text = serializeDownloadList([job]);
+    expect(JSON.parse(text).version).toBe(2);
+    const imported = parseDownloadList(text)[0]!;
+    expect(imported.media).toBe('hls');
+    expect(imported).not.toHaveProperty('planHash');
+    expect(createJob(imported).media).toEqual({ kind: 'hls' });
+  });
+  it('round-trips two audio choices for the same video in version 3 without merging them', () => {
+    const jobs = ['en', 'fa'].map((language) =>
+      createJob({
+        url: 'https://example.org/video.m3u8',
+        media: 'hls',
+        audioUrl: `https://example.org/${language}.m3u8`,
+        audioLabel: language,
+      }),
+    );
+    const text = serializeDownloadList(jobs);
+    expect(JSON.parse(text).version).toBe(3);
+    const inputs = parseDownloadList(text);
+    expect(inputs).toHaveLength(2);
+    expect(inputs.map((input) => createJob(input).media?.audioUrl)).toEqual(
+      jobs.map((job) => job.media?.audioUrl),
+    );
+    expect(() =>
+      createJob({
+        url: 'https://example.org/video.m3u8',
+        media: 'hls',
+        audioUrl: 'http://example.org/audio.m3u8',
+      }),
+    ).toThrow(/insecure/);
+    expect(() =>
+      createJob({ url: 'https://example.org/file', audioUrl: 'https://example.org/audio.m3u8' }),
+    ).toThrow(/HLS/);
+  });
+});
+
+describe('numbered series pattern', () => {
+  it('builds a padded pattern from a sample link and the last number', () => {
+    expect(buildNumberPattern('https://example.org/v1/video-01.mp4', 12)).toBe(
+      'https://example.org/v1/video-[01:12].mp4',
+    );
+    expect(buildNumberPattern('https://example.org/part7.zip', 100)).toBe(
+      'https://example.org/part[007:100].zip',
+    );
+    expect(() => buildNumberPattern('https://example.org/file.zip', 5)).toThrow();
+    expect(() => buildNumberPattern('https://example.org/file-10.zip', 5)).toThrow();
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { X, Zap } from 'lucide-react';
 export function Modal({
   title,
   onClose,
@@ -33,7 +33,10 @@ export function Modal({
       aria-labelledby="modal-title"
     >
       <header className="modal-header">
-        <h2 id="modal-title">{title}</h2>
+        <h2 id="modal-title">
+          <Zap size={20} aria-hidden="true" />
+          {title}
+        </h2>
         <button className="icon-button" onClick={onClose} aria-label="Close dialog">
           <X size={19} />
         </button>

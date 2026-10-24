@@ -15,6 +15,12 @@ const licenses = await Promise.all(
   ),
 );
 await writeFile('dist/THIRD_PARTY_NOTICES.txt', licenses.join('\n\n---\n\n'));
+await writeFile(
+  'dist/THIRD_PARTY_NOTICES.txt',
+  '\n\n---\n\nmux.js 6.3.0 (Flux parser guards; see scripts/vendor-media.mjs)\n' +
+    (await readFile('src/engine/media/vendor/mux-LICENSE.txt', 'utf8')),
+  { flag: 'a' },
+);
 await build({
   entryPoints: ['src/content/index.ts'],
   outfile: 'dist/content.js',

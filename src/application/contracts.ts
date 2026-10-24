@@ -16,7 +16,12 @@ export interface ManagerAPI {
   subscribe(listener: () => void): () => void;
   getSnapshot(): Snapshot;
   add(input: NewDownload): Promise<void>;
-  inspectHls(url: string, signal?: AbortSignal): Promise<HlsReview>;
+  inspectHls(
+    url: string,
+    signal?: AbortSignal,
+    audioUrl?: string,
+    useBrowserCookies?: boolean,
+  ): Promise<HlsReview>;
   addBatch(inputs: NewDownload[]): Promise<{ added: number; skipped: number }>;
   replaceSource(id: string, url: string): Promise<void>;
   saveQueue(queue: DownloadQueue): Promise<void>;
@@ -42,12 +47,13 @@ export interface ManagerAPI {
       >
     >,
   ): Promise<void>;
-  exportFile(id: string): Promise<void>;
+  exportFile(id: string, saveAs?: boolean): Promise<void>;
   chooseDownloadFolder(): Promise<void>;
+  setAutoSave(enabled: boolean): Promise<void>;
   previewCompletionSound(): Promise<void>;
   browserDownload(id: string): Promise<void>;
   clearHistory(): Promise<void>;
   cleanup(): Promise<void>;
   requestPersistence(): Promise<boolean>;
-  detectMedia(): Promise<{ url: string; filename: string }[]>;
+  detectMedia(): Promise<{ url: string; filename: string; media?: 'hls' }[]>;
 }

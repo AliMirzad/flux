@@ -1,0 +1,10 @@
+{
+  "installation": "releases/flux-0.5.0",
+  "backup": "releases/install-backups/before-0.7-1792564359404",
+  "previousVersion": "0.5.0",
+  "version": "0.7.0",
+  "copiedFiles": 15,
+  "permissionsUnchanged": true,
+  "requiresExistingCardReload": true,
+  "olderHashedAssetsRetained": true
+}

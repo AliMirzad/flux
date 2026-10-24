@@ -1,4 +1,38 @@
-# Flux 0.6.0 - bounded automatic recovery for failed transfers
+# Flux 0.10.0 - separate HLS audio and integration review
+
+- Select a named audio/language rendition for completed fMP4 HLS, combine it with video and preserve the selection through full-browser recovery, repeat copies and version-3 URL lists. Ordinary identity AES-128 is supported on either source. Encoded media samples stay unchanged. Separate TS audio, live/discontinuities and DASH remain open.
+- Integrates the final manager/popup redesign, capture confirmation and queue flows. Compatible cookie-authenticated GETs can use the original source session. The real Advanced cookie toggle controls it; every unrelated redirect/media/key origin omits credentials. Imports do not silently opt into cookies.
+- Approved page blob/data downloads use bounded sender-bound messages and verified OPFS staging, including script-triggered blob handoff. Replay, oversized/out-of-order chunks, overlap and orphan-cleanup races are refused; abandoned transfers expire. Received page files cannot accidentally re-download their source page.
+- Review and exact acceptance evidence: [source findings](code-review-0.10.md), [verification](verification-0.10.md). The full requested capability goal remains open.
+
+# Earlier release: Flux 0.9.0 - ordinary AES-128 HLS
+
+- Completed H.264/AAC MP4 and independently decodable TS HLS can use ordinary identity AES-128 CBC/PKCS7. Review includes key origins. Explicit/media-sequence IVs, encrypted initialization with an explicit IV, rotated keys, clear transitions and complete encrypted byte ranges are supported. DRM/sample encryption remain unsupported.
+- Raw keys remain temporary; checkpoints retain a fingerprint alongside ciphertext identity and decrypted/converted output extent/hash. Resume refuses a changed key while retaining committed output. Invalid key lengths and padding cannot commit the failed part.
+- Ciphertext uses fixed 256 KiB blocks with a bounded part size/object count. The decryption/conversion path keeps input alive until flush. Key traffic shares throttling/allowance accounting, including a full-window check that prevents repeated key-only pauses.
+- Actual Chrome export, playback, encoded sample identity, full restart recovery and missing key-origin access are verified. See [0.9 review](code-review-0.9.md) and [verification](verification-0.9.md). The full capability goal remains open.
+- The current workspace also includes a configurable queue chooser for newly captured jobs when named queues exist, plus clearer queue scheduling/status controls. The browser acceptance suite covers holding a click without a duplicate native download, choosing a named queue in the popup and completing that job.
+
+# Earlier release: Flux 0.8.0 - bounded MPEG-TS HLS conversion
+
+- Completed, unencrypted H.264/AAC HLS with independently decodable MPEG-TS parts can produce a playable MP4. Each part is capped at 16 MiB and converted in a packaged child worker with cancellation and a processing deadline. Unsupported keyframe boundaries, split program metadata, codecs and discontinuities are refused explicitly.
+- Source bytes/validators and converted output extents/hashes have distinct durable checkpoints. Full Chrome restart retains converted output, revalidates its source with HEAD and fetches only missing parts. First-part checkpoint failure rolls back initialization and timeline metadata.
+- Review addressed malformed AAC non-progress, silent pre-keyframe frame loss, TS packet continuity, 33-bit timestamp rollover, standalone duration and fragment-address assumptions. Actual Chrome export/playback verifies color/audio/seek markers and every encoded video frame/AAC sample against the source.
+- The user's installed 0.7.0 activation and download startup were confirmed. The 0.8 artifact is separately tested and packaged; that confirmation does not establish 0.8 activation. Remaining media, crawling and localization work stays open.
+
+See [0.8 verification](verification-0.8.md), [source review](code-review-0.8.md) and the [capability audit](feature-parity.md).
+
+# Earlier release: Flux 0.7.0 - verified MP4 HLS assembly and integration review
+
+- Review completed, unencrypted MP4 HLS playlists, choose a quality and download a single H.264/AAC rendition to a playable MP4. Worker staging validates initialization, fragment/sample bounds and relative decode timelines, with incremental hashing and durable logical-part checkpoints. Full Chrome restart revalidates retained parts before fetching missing payload.
+- User-invoked page media discovery includes HLS playlist links and recent resource entries. Playlist selections open review instead of downloading the manifest as a finished video. MPEG-TS, separate audio, encryption, live/discontinuity workflows and DASH remain unfinished.
+- Completed files save to Chrome's Downloads folder by default, with configurable category paths, collision handling and Show in folder. Save As and an explicitly chosen folder remain available. A browser save-dialog notice explains its setting and folder alternatives.
+- Existing-frame capture injection now includes already-loaded iframes, with a top-frame fallback for restricted children. Settings can inspect the loaded background version, capture switch, host grant and listener, or reconnect existing capture without expanding permissions.
+- Downloads-folder saving rehashes the exact staged File snapshot before starting a native write. History errors after successful saving retain the completed destination. Batch/queue/media transactions clone all inputs before starting writes. MP4 field boundaries and URL-list versions receive additional validation.
+
+The complete parity request remains active; see [code review](code-review-0.7.md), [verification](verification-0.7.md) and [capability audit](feature-parity.md).
+
+# Earlier release: Flux 0.6.0 - bounded automatic recovery for failed transfers
 
 - Optional global and per-queue retry policies allow 0–20 automatic whole-transfer retries after short engine request retries are exhausted. Defaults remain off. Transient transport/timeouts and selected temporary HTTP failures qualify; authentication, access, storage and verification errors require attention.
 - Failure times, server not-before hints, counters and next deadlines persist. Delays double up to 24 hours while honoring a longer Retry-After. Reopening restores the original deadline. Queue calendars and concurrency still gate dispatch; an attempt is consumed only when persisted for actual dispatch.

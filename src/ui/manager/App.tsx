@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  Activity,
   ArrowDown,
   ArrowDownToLine,
   Archive,
   AudioLines,
   Check,
   CheckCheck,
+  CircleCheckBig,
+  Database,
+  FolderOpen,
+  Layers,
+  Link2,
+  Upload,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   Clock3,
@@ -14,7 +20,6 @@ import {
   File,
   FileText,
   FolderDown,
-  HardDrive,
   Image,
   LayoutGrid,
   ListFilter,
@@ -36,7 +41,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { manager } from '../../application/client';
-import type { DownloadJob, Category } from '../../domain/model';
+import type { DownloadJob, DownloadQueue, Category } from '../../domain/model';
 import type { Action } from '../../application/contracts';
 import { bytes, eta, hostname, isActive, percent, stateLabel } from '../components/format';
 import { Modal } from '../components/Modal';
@@ -46,6 +51,8 @@ import { Settings } from '../settings/Settings';
 import { captureOrigins } from '../../shared/capture';
 import { BatchDownloads } from './BatchDownloads';
 import { Queues } from './Queues';
+import { queueStatus } from '../components/queue-status';
+import { SaveSetup } from './SaveSetup';
 import { exportDownloadList } from './export-list';
 import { browserNeedsReview } from '../../domain/browser-download';
 interface NativeOffer {
@@ -100,7 +107,9 @@ function JobCard({
   exportFile,
   selected,
   onSelect,
+  queue,
 }: {
+  queue?: DownloadQueue;
   job: DownloadJob;
   onDetails: () => void;
   action: (value: Action) => void;
@@ -120,7 +129,7 @@ function JobCard({
       (job.state === 'FAILED' && Boolean(job.sha256)));
   return (
     <article
-      className={`download-card ${job.state === 'FAILED' ? 'has-error' : ''}`}
+      className={`download-card ${job.state === 'FAILED' ? 'has-error' : ''} ${active ? 'is-active' : ''}`}
       data-job-id={job.id}
     >
       <div className={`file-icon ${job.category.toLowerCase()}`}>
@@ -153,8 +162,14 @@ function JobCard({
           {browser && <span className="browser-transport">Original browser transfer</span>}
           {job.media && (
             <span className="browser-transport">
-              HLS · {Math.max(0, (job.media.completed ?? 0) - 1)}/{job.media.parts ?? '?'} media
-              parts
+              HLS ·{' '}
+              {Math.max(
+                0,
+                (job.media.completed ?? 0) -
+                  (job.media.audioUrl || job.media.transport === 'mpegts' ? 0 : 1),
+              )}
+              /{job.media.parts ?? '?'} media parts
+              {job.media.audioLabel && <> · {job.media.audioLabel}</>}
             </span>
           )}
           {job.priority > 0 && (
@@ -167,6 +182,21 @@ function JobCard({
             <>
               <span>·</span>
               <span>{new Date(job.scheduledAt).toLocaleString()}</span>
+            </>
+          )}
+          {queue && (
+            <>
+              <span>·</span>
+              <span
+                className={
+                  job.state === 'QUEUED' && queueStatus(queue).tone !== 'live' ? 'queue-hint' : ''
+                }
+              >
+                {queue.name}
+                {job.state === 'QUEUED' && queueStatus(queue).tone !== 'live'
+                  ? ` — ${queueStatus(queue).label.toLowerCase()}`
+                  : ''}
+              </span>
             </>
           )}
         </div>
@@ -238,6 +268,7 @@ function JobCard({
           </button>
         )}
         {['PAUSED', 'WAITING_FOR_NETWORK', 'CANCELED'].includes(job.state) &&
+          !job.pageFile &&
           canResume &&
           (!browser || job.state !== 'CANCELED') && (
             <button
@@ -333,7 +364,10 @@ export function App() {
   const [error, setError] = useState(
     new URLSearchParams(location.hash.slice(1)).get('error') ?? '',
   );
-  const [media, setMedia] = useState<{ url: string; filename: string }[] | null>(null);
+  const [media, setMedia] = useState<{ url: string; filename: string; media?: 'hls' }[] | null>(
+    null,
+  );
+  const [initialMedia, setInitialMedia] = useState<'hls' | undefined>();
   const [mediaBusy, setMediaBusy] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -343,6 +377,7 @@ export function App() {
   const [queuesOpen, setQueuesOpen] = useState(false);
   const [queueFilter, setQueueFilter] = useState('all');
   const [selection, setSelection] = useState(new Set<string>());
+  const [bulkTime, setBulkTime] = useState<string | null>(null);
   useEffect(() => {
     if (!globalThis.chrome?.runtime?.id) return;
     const check = () => {
@@ -360,6 +395,18 @@ export function App() {
     };
   }, [snapshot.settings.interception]);
   const sidebarRef = useRef<HTMLElement>(null);
+  const globalSearch = useRef<HTMLInputElement>(null);
+  const [bannerHidden, setBannerHidden] = useState(false);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        globalSearch.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
   const jobs = snapshot.jobs;
   const active = jobs.filter(isActive);
   const speed = active.reduce((n, j) => n + j.speed, 0);
@@ -418,7 +465,8 @@ export function App() {
         setAdd(true);
       }
       if (params.has('error')) setError(params.get('error') ?? 'Could not add this download.');
-      if (params.has('add') || params.has('error'))
+      if (params.has('settings')) setView('settings');
+      if (params.has('add') || params.has('error') || params.has('settings'))
         history.replaceState(null, '', location.pathname + location.search);
     };
     handler();
@@ -481,6 +529,36 @@ export function App() {
       )
         return;
       for (const job of selectedJobs) await manager.action(job.id, action);
+      setSelection(new Set());
+    });
+  const nextHour = () => {
+    const at = new Date(Date.now() + 3600000);
+    at.setMinutes(0, 0, 0);
+    return new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  /** Holds the selected files until a chosen time, then the queue starts them. */
+  const scheduleSelected = (at: number) =>
+    run(async () => {
+      if (!Number.isFinite(at)) throw new Error('Choose a start time.');
+      for (const job of selectedJobs) {
+        if (job.engine === 'browser' || ['COMPLETED', 'ASSEMBLING'].includes(job.state)) continue;
+        if (isActive(job)) await manager.action(job.id, 'pause');
+        await manager.updateJob(job.id, { scheduledAt: at });
+        if (job.state !== 'QUEUED') await manager.action(job.id, 'resume');
+      }
+      setBulkTime(null);
+      setSelection(new Set());
+    });
+  const moveToQueue = (queueId: string) =>
+    run(async () => {
+      for (const job of selectedJobs) {
+        if (job.engine === 'browser' || job.queueId === queueId) continue;
+        // Options can only change while a transfer is stopped; it resumes from its queue.
+        const wasActive = isActive(job);
+        if (wasActive) await manager.action(job.id, 'pause');
+        await manager.updateJob(job.id, { queueId });
+        if (wasActive) await manager.action(job.id, 'resume');
+      }
       setSelection(new Set());
     });
   const title = navigation.find((item) => item.id === view)?.label || view;
@@ -583,7 +661,7 @@ export function App() {
           </button>
           <div className="sidebar-version">
             <span>Flux for Chrome</span>
-            <span>v0.7.0</span>
+            <span>v0.10.0</span>
           </div>
           <p className="sidebar-credit">
             created by <strong>Vexor</strong>
@@ -592,18 +670,28 @@ export function App() {
       </aside>
       <main className="main">
         <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="icon-button mobile-menu"
-              onClick={() => setMobileNav(!mobileNav)}
-              aria-label="Toggle navigation"
-            >
-              <LayoutGrid size={19} />
-            </button>
-            <span>Workspace</span>
-            <ChevronRight size={14} />
-            <strong>{view === 'settings' ? 'Settings' : title}</strong>
-          </div>
+          <button
+            className="icon-button mobile-menu"
+            onClick={() => setMobileNav(!mobileNav)}
+            aria-label="Toggle navigation"
+          >
+            <LayoutGrid size={19} />
+          </button>
+          <label className="global-search">
+            <Search size={17} />
+            <input
+              ref={globalSearch}
+              aria-label="Global search"
+              placeholder="Search downloads, files, or folders…"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                if (view === 'settings') changeView('all');
+              }}
+            />
+            <kbd>Ctrl</kbd>
+            <kbd>K</kbd>
+          </label>
           <div className="topbar-right">
             <span className="local-indicator">
               <i /> Local engine
@@ -626,6 +714,11 @@ export function App() {
           </div>
         </header>
         <div className="main-content">
+          <nav className="breadcrumb" aria-label="Breadcrumb">
+            <span>Workspace</span>
+            <ChevronRight size={14} />
+            <strong>{view === 'settings' ? 'Settings' : title}</strong>
+          </nav>
           {(error || snapshot.error) && (
             <div className="global-error" role="alert">
               <CircleAlert size={18} />
@@ -639,29 +732,51 @@ export function App() {
               </button>
             </div>
           )}
-          <section className="capture-setup" aria-label="Automatic download capture">
-            <ShieldCheck size={23} />
-            <div>
-              <strong>
-                {snapshot.settings.interception && captureAccess
-                  ? 'Automatic capture is on'
-                  : 'Let Flux handle your downloads'}
-              </strong>
-              <p>
-                {snapshot.settings.interception && captureAccess
-                  ? 'Eligible downloads start in Flux. Files that require the original browser request stay with Chrome.'
-                  : 'Enable automatic capture and approve website access so clicking a file starts Flux instead of Chrome’s default downloader.'}
-              </p>
-            </div>
-            {(!snapshot.settings.interception || !captureAccess) && (
-              <button
-                className="button primary"
-                onClick={() => run(() => manager.enableAutomaticCapture())}
-              >
-                Enable automatic downloads
-              </button>
-            )}
-          </section>
+          {!(bannerHidden && snapshot.settings.interception && captureAccess) && (
+            <section className="capture-setup" aria-label="Automatic download capture">
+              <ShieldCheck size={23} />
+              <div>
+                <strong>
+                  {snapshot.settings.interception && captureAccess
+                    ? 'Automatic capture is on'
+                    : 'Let Flux handle your downloads'}
+                </strong>
+                <p>
+                  {snapshot.settings.interception && captureAccess
+                    ? 'Eligible downloads start in Flux. Files that require the original browser request stay with Chrome.'
+                    : 'Enable automatic capture and approve website access so clicking a file starts Flux instead of Chrome’s default downloader.'}
+                </p>
+              </div>
+              {(!snapshot.settings.interception || !captureAccess) && (
+                <button
+                  className="button primary"
+                  onClick={() => run(() => manager.enableAutomaticCapture())}
+                >
+                  Enable automatic downloads
+                </button>
+              )}
+              {snapshot.settings.interception && captureAccess && (
+                <>
+                  <span className="banner-art browser-art" aria-hidden="true">
+                    <Zap size={20} fill="currentColor" />
+                  </span>
+                  <button
+                    className="icon-button banner-close"
+                    aria-label="Dismiss banner"
+                    onClick={() => setBannerHidden(true)}
+                  >
+                    <X size={18} />
+                  </button>
+                </>
+              )}
+            </section>
+          )}
+          <SaveSetup
+            snapshot={snapshot}
+            manager={manager}
+            run={run}
+            onSettings={() => changeView('settings')}
+          />
           {offers.length > 0 && (
             <section
               className="native-offers"
@@ -730,6 +845,7 @@ export function App() {
                   }}
                 >
                   <Plus size={18} /> Add download
+                  <ChevronDown size={17} className="button-chevron" />
                 </button>
               </div>
               <div className="workspace-actions" aria-label="Download tools">
@@ -737,38 +853,39 @@ export function App() {
                   className="button secondary"
                   onClick={() => run(() => manager.chooseDownloadFolder())}
                 >
+                  <FolderOpen size={17} />
                   {snapshot.destination
                     ? `Folder: ${snapshot.destination.name}`
                     : 'Choose download folder'}
                 </button>
                 <button className="button secondary" onClick={() => setBatch('')}>
-                  Add multiple links
+                  <Link2 size={17} /> Add multiple links
                 </button>
                 <button className="button secondary" onClick={() => setQueuesOpen(true)}>
-                  Manage queues
+                  <Layers size={17} /> Manage queues
                 </button>
                 <button
                   className="button secondary"
                   disabled={mediaBusy}
                   onClick={() => void grabLinks()}
                 >
-                  Grab page links
+                  <FileText size={17} /> Grab page links
                 </button>
                 <button
-                  className="text-button"
+                  className="button secondary"
                   disabled={!jobs.length}
                   onClick={() =>
                     run(() => exportDownloadList(selectedJobs.length ? selectedJobs : jobs))
                   }
                 >
-                  Export link list
+                  <Upload size={17} /> Export link list
                 </button>
               </div>
               <section className="stats-grid" aria-label="Transfer statistics">
                 <div className="stat-card">
                   <div className="stat-label">
                     <span>Current speed</span>
-                    <Activity size={17} />
+                    <Zap size={17} />
                   </div>
                   <div className="stat-value accent-text">
                     {bytes(speed)}
@@ -778,11 +895,14 @@ export function App() {
                     <span className={`live-dot ${active.length ? 'live' : ''}`} />
                     {active.length ? 'Live transfer speed' : 'Ready when you are'}
                   </span>
+                  <svg className="stat-art wave" viewBox="0 0 120 40" aria-hidden="true">
+                    <path d="M0 30 C15 10 25 34 40 22 S65 6 80 18 S105 8 120 14" />
+                  </svg>
                 </div>
                 <div className="stat-card">
                   <div className="stat-label">
                     <span>In progress</span>
-                    <ArrowDownToLine size={17} />
+                    <Clock3 size={17} />
                   </div>
                   <div className="stat-value">
                     {active.length.toString().padStart(2, '0')}
@@ -791,11 +911,14 @@ export function App() {
                   <span className="stat-foot">
                     {active.reduce((n, j) => n + j.connections, 0)} active connections
                   </span>
+                  <span className="stat-art bars" aria-hidden="true">
+                    <i /> <i /> <i /> <i /> <i /> <i />
+                  </span>
                 </div>
                 <div className="stat-card">
                   <div className="stat-label">
                     <span>Completed</span>
-                    <CheckCheck size={17} />
+                    <CircleCheckBig size={17} />
                   </div>
                   <div className="stat-value">
                     {completed.length.toString().padStart(2, '0')}
@@ -804,11 +927,14 @@ export function App() {
                   <span className="stat-foot">
                     {bytes(completed.reduce((n, j) => n + j.downloaded, 0))} downloaded
                   </span>
+                  <span className="stat-art bars" aria-hidden="true">
+                    <i /> <i /> <i /> <i /> <i /> <i />
+                  </span>
                 </div>
                 <div className="stat-card">
                   <div className="stat-label">
                     <span>Local storage</span>
-                    <HardDrive size={17} />
+                    <Database size={17} />
                   </div>
                   <div className="stat-value">
                     {snapshot.storage ? bytes(snapshot.storage.usage) : '—'}
@@ -817,6 +943,21 @@ export function App() {
                     {snapshot.storage
                       ? `${bytes(snapshot.storage.quota)} browser quota`
                       : 'Stored privately in your browser'}
+                  </span>
+                  <span className="stat-meter" aria-hidden="true">
+                    <i
+                      style={{
+                        width: `${snapshot.storage ? Math.min(100, (snapshot.storage.usage / Math.max(1, snapshot.storage.quota)) * 100) : 0}%`,
+                      }}
+                    />
+                    <b>
+                      {snapshot.storage
+                        ? Math.round(
+                            (snapshot.storage.usage / Math.max(1, snapshot.storage.quota)) * 100,
+                          )
+                        : 0}
+                      %
+                    </b>
                   </span>
                 </div>
               </section>
@@ -828,14 +969,14 @@ export function App() {
                   </div>
                   <div className="toolbar">
                     <button
-                      className="text-button"
+                      className="button secondary tool"
                       onClick={() => run(() => manager.pauseAll())}
                       disabled={!active.length && !jobs.some((job) => job.queueRetryAt != null)}
                     >
                       <Pause size={15} /> Pause all
                     </button>
                     <button
-                      className="text-button"
+                      className="button secondary tool"
                       onClick={() => run(() => manager.resumeAll())}
                       disabled={
                         !jobs.some((j) =>
@@ -960,6 +1101,55 @@ export function App() {
                         <button className="text-button danger-text" onClick={() => bulk('remove')}>
                           Remove selected
                         </button>
+                        <span className="bulk-divider" />
+                        <button className="text-button" onClick={() => bulk('start')}>
+                          <Play size={14} /> Start now
+                        </button>
+                        <select
+                          className="bulk-select"
+                          aria-label="Move selected to queue"
+                          value=""
+                          onChange={(event) =>
+                            event.target.value === 'new'
+                              ? setQueuesOpen(true)
+                              : moveToQueue(event.target.value)
+                          }
+                        >
+                          <option value="" disabled>
+                            Move to queue…
+                          </option>
+                          <option value="default">Default queue</option>
+                          {snapshot.settings.queues.map((queue) => (
+                            <option key={queue.id} value={queue.id}>
+                              {queue.name}
+                            </option>
+                          ))}
+                          <option value="new">+ New queue…</option>
+                        </select>
+                        {bulkTime === null ? (
+                          <button className="text-button" onClick={() => setBulkTime(nextHour())}>
+                            <Clock3 size={14} /> Start at…
+                          </button>
+                        ) : (
+                          <span className="bulk-time">
+                            <input
+                              type="datetime-local"
+                              aria-label="Start selected at"
+                              value={bulkTime}
+                              onChange={(event) => setBulkTime(event.target.value)}
+                            />
+                            <button
+                              className="button primary small"
+                              disabled={!bulkTime}
+                              onClick={() => scheduleSelected(new Date(bulkTime).getTime())}
+                            >
+                              Set
+                            </button>
+                            <button className="text-button" onClick={() => setBulkTime(null)}>
+                              Cancel
+                            </button>
+                          </span>
+                        )}
                       </>
                     )}
                   </div>
@@ -977,6 +1167,7 @@ export function App() {
                         key={job.id}
                         job={job}
                         selected={selection.has(job.id)}
+                        queue={snapshot.settings.queues.find((queue) => queue.id === job.queueId)}
                         onSelect={(checked) =>
                           setSelection((previous) => {
                             const next = new Set(previous);
@@ -1036,9 +1227,11 @@ export function App() {
         <AddDownload
           key={initialUrl}
           initialUrl={initialUrl}
+          initialMedia={initialMedia}
           manager={manager}
           onClose={() => {
             setAdd(false);
+            setInitialMedia(undefined);
             if (location.hash === '#add')
               history.replaceState(null, '', location.pathname + location.search);
           }}
@@ -1052,10 +1245,11 @@ export function App() {
         <Details job={selectedJob} manager={manager} onClose={() => setSelected(null)} run={run} />
       )}{' '}
       {media && (
-        <Modal title="Direct media on this page" onClose={() => setMedia(null)}>
+        <Modal title="Media on this page" onClose={() => setMedia(null)}>
           <div className="form-stack media-list">
             <p className="muted">
-              Direct HTTP media only. Protected streams and DRM are unsupported.
+              Direct media files and HLS playlists found in this page. Review an HLS rendition
+              before downloading. DRM is unsupported.
             </p>
             {media.length ? (
               media.map((item, index) => (
@@ -1068,20 +1262,30 @@ export function App() {
                     className="button secondary"
                     onClick={() =>
                       run(async () => {
+                        if (item.media === 'hls') {
+                          setInitialUrl(item.url);
+                          setInitialMedia('hls');
+                          setMedia(null);
+                          setAdd(true);
+                          return;
+                        }
                         await manager.add(item);
                         setMedia((items) => items?.filter((value) => value !== item) ?? []);
                       })
                     }
                   >
-                    <Plus size={15} /> Add
+                    <Plus size={15} /> {item.media === 'hls' ? 'Review HLS' : 'Add'}
                   </button>
                 </div>
               ))
             ) : (
               <div className="empty-state compact">
                 <Video size={28} />
-                <h3>No direct media found</h3>
-                <p>Open a web page with a direct video or audio file, then try again.</p>
+                <h3>No media found</h3>
+                <p>
+                  Play a video on the website, then try again. You can also paste a playlist URL in
+                  Add download.
+                </p>
               </div>
             )}
           </div>

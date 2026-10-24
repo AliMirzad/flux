@@ -419,4 +419,13 @@ describe('real HTTP download engine', () => {
     expect(store.closed).toBe(true);
     expect(job.state).not.toBe('ASSEMBLING');
   });
+  it('opens the full connection allowance in adaptive mode on a server that scales', async () => {
+    const auto = { ...settings, mode: 'auto' as const, maxConnections: 8, perHost: 8 };
+    const { job, store, options } = setup('/capped', 8 * MiB, { settings: auto });
+    job.mode = 'auto';
+    job.maxConnections = 8;
+    await runDownload(options);
+    expect(fixture.stats.maxActive).toBe(8);
+    expect(digest(store)).toBe(fixtureHash(8 * MiB));
+  });
 });

@@ -49,7 +49,10 @@ async function add(page: Page, url: string, filename: string) {
   await page.getByRole('button', { name: 'Add download', exact: true }).click();
   await page.getByLabel('Download URL').fill(url);
   await page.getByLabel('File name optional').fill(filename);
-  await page.getByRole('dialog').getByRole('button', { name: 'Add download', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Start Download', exact: true })
+    .click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: filename, exact: true })).toBeVisible();
 }
@@ -65,6 +68,12 @@ test.beforeAll(async () => {
   manifest.host_permissions = ['http://downloads.example.com/*'];
   await writeFile(join(extensionPath, 'manifest.json'), JSON.stringify(manifest));
   await launch();
+  const setup = await openManager();
+  await setup.getByRole('button', { name: 'Settings', exact: true }).click();
+  await setup.getByLabel('Automatically save finished downloads').uncheck();
+  await setup.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await expect(setup.getByText('Preferences saved')).toBeVisible();
+  await setup.close();
 });
 test.afterAll(async () => {
   await context?.close();
@@ -101,7 +110,9 @@ test('installed MV3 engine: real parallel ranges, final hash, popup and streamed
       },
     });
   });
-  await page.getByRole('button', { name: 'Save parallel.bin', exact: true }).click();
+  await page.getByRole('button', { name: 'Details for parallel.bin', exact: true }).click();
+  await page.getByRole('button', { name: /Save as/ }).click();
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await expect(page.getByText('Completed', { exact: true }).last()).toBeVisible();
   const exportedHash = await page.evaluate(async () => {
     const file = await (
@@ -184,7 +195,7 @@ test('context menu URL prefill, safe redirects, settings persistence and compact
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByLabel('Download URL')).toHaveValue(`${base}/redirect`);
   await page.getByLabel('File name optional').fill('redirect.bin');
-  await page.getByRole('button', { name: 'Add download', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Start Download', exact: true }).click();
   await expect(
     page
       .locator('.download-card')
@@ -245,7 +256,9 @@ for (const mib of (process.env.LARGE_FILE_MIB ?? '100').split(',').map(Number))
         },
       }),
     );
-    await page.getByRole('button', { name: `Save ${name}`, exact: true }).click();
+    await page.getByRole('button', { name: `Details for ${name}`, exact: true }).click();
+    await page.getByRole('button', { name: /Save as/ }).click();
+    await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
     await expect(card.getByText('Completed', { exact: true })).toBeVisible({ timeout: 180000 });
     const validated = await page.evaluate(async () => {
       const file = await (

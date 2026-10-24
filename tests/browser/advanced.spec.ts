@@ -49,6 +49,12 @@ test.afterEach(async () => {
 async function open() {
   await page.goto(`chrome-extension://${id}/manager.html`);
   await expect(page.getByRole('heading', { name: 'All downloads.' })).toBeVisible();
+  // These engine/scheduler tests inspect staged data; destination saving has its own specs.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('Automatically save finished downloads').uncheck();
+  await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await expect(page.getByText('Preferences saved')).toBeVisible();
+  await home();
 }
 const snapshot = () =>
   page.evaluate(async () => (await chrome.runtime.sendMessage({ type: 'snapshot' })) as Snapshot);
@@ -59,8 +65,15 @@ async function add(url: string, filename: string, queue?: string) {
   await page.getByRole('button', { name: 'Add download', exact: true }).click();
   await page.getByLabel('Download URL').fill(url);
   await page.getByLabel('File name optional').fill(filename);
-  if (queue) await page.getByLabel('Download queue').selectOption({ label: queue });
-  await page.getByRole('dialog').getByRole('button', { name: 'Add download', exact: true }).click();
+  if (queue) {
+    await page.getByRole('tab', { name: 'Schedule' }).click();
+    await page.getByLabel('Download queue').selectOption({ label: queue });
+  }
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Start Download', exact: true })
+    .click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 test('an allowance pause persists complete OPFS ranges and resumes only missing bytes after its limit is raised', async () => {
   await open();
@@ -99,13 +112,15 @@ test('a weekly queue starts and pauses at its actual window boundaries, then res
   await page.clock.install({ time: new Date(2026, 9, 19, 21, 59) });
   await open();
   await page.getByRole('button', { name: 'Manage queues', exact: true }).click();
+  await page.getByRole('button', { name: 'New queue', exact: true }).click();
   await page.getByLabel('Queue name').fill('Monday window');
-  await page.getByLabel('Keep queue stopped').uncheck();
-  await page.getByLabel('Stop queue when all files are verified').check();
+  await page.getByLabel('Start on a schedule').check();
+  await page.getByLabel('When all files are finished').selectOption('stop');
   for (const day of ['Sun', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])
     await page.getByLabel(day, { exact: true }).uncheck();
   await page.getByLabel('Queue window start').fill('22:00');
   await page.getByLabel('Queue window end').fill('22:02');
+  await page.getByText('Date range', { exact: true }).click();
   await page.getByLabel('Queue first start').fill('2026-10-19T22:00');
   await page.getByRole('button', { name: 'Save queue', exact: true }).click();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -151,8 +166,9 @@ test('periodic queues create new verified copies and completion sound uses a loc
   await page.getByRole('button', { name: 'Test completion sound', exact: true }).click();
   await home();
   await page.getByRole('button', { name: 'Manage queues', exact: true }).click();
+  await page.getByRole('button', { name: 'New queue', exact: true }).click();
   await page.getByLabel('Queue name').fill('Periodic');
-  await page.getByLabel('Keep queue stopped').uncheck();
+  await page.getByLabel('When all files are finished').selectOption('repeat');
   await page.getByLabel('Repeat queue every (minutes, 0 = once)').fill('1');
   await page.getByRole('button', { name: 'Save queue', exact: true }).click();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -188,8 +204,9 @@ test('a real temporary server failure persists its retry deadline through reload
   await page.clock.install({ time: new Date() });
   await open();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByLabel('Automatic retry attempts (0 = off)').fill('2');
-  await page.getByLabel('Initial retry delay (seconds)').fill('30');
+  await page.getByLabel('Retry failed downloads automatically').check();
+  await page.getByLabel('Retry attempts', { exact: true }).fill('2');
+  await page.getByLabel('First retry after (seconds)').fill('30');
   await page.getByLabel('Connection mode').selectOption('manual');
   await page.getByLabel('Maximum connections').selectOption('1');
   await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
@@ -231,8 +248,9 @@ test('per-queue retry overrides stop on manual pause and never requeue login fai
   await page.clock.install({ time: new Date() });
   await open();
   await page.getByRole('button', { name: 'Manage queues', exact: true }).click();
+  await page.getByRole('button', { name: 'New queue', exact: true }).click();
   await page.getByLabel('Queue name').fill('Retry policy');
-  await page.getByLabel('Keep queue stopped').uncheck();
+  await page.getByText('Automatic retry', { exact: true }).click();
   await page.getByLabel('Override automatic retry defaults').check();
   await page.getByLabel('Queue automatic retry attempts (0 = off)').fill('1');
   await page.getByLabel('Queue initial retry delay (seconds)').fill('30');

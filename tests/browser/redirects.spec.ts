@@ -41,6 +41,11 @@ test.beforeAll(async () => {
   page = await context.newPage();
   await page.goto(`chrome-extension://${id}/manager.html`);
   await expect(page.getByRole('heading', { name: 'All downloads.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('Automatically save finished downloads').uncheck();
+  await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+  await expect(page.getByText('Preferences saved')).toBeVisible();
+  await page.getByRole('button', { name: /All downloads/ }).click();
 });
 test.afterAll(async () => {
   await context?.close();
@@ -51,7 +56,10 @@ async function add(url: string, name: string) {
   await page.getByRole('button', { name: 'Add download', exact: true }).click();
   await page.getByLabel('Download URL').fill(url);
   await page.getByLabel('File name optional').fill(name);
-  await page.getByRole('dialog').getByRole('button', { name: 'Add download', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Start Download', exact: true })
+    .click();
   return page
     .locator('.download-card')
     .filter({ has: page.getByRole('button', { name, exact: true }) });

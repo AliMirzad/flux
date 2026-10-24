@@ -10,6 +10,34 @@ import {
 import { defaultSettings } from '../../src/domain/model';
 
 describe('queue scheduling', () => {
+  it('opens a start-only queue at its start time and closes a stop-only queue at its stop time', () => {
+    const base = { id: 'q', name: 'Q', paused: false, maxActive: 1, speedLimit: 0 };
+    const at = (hour: number, minute = 0) => new Date(2026, 9, 19, hour, minute);
+    const startOnly = { ...base, windowStart: '02:00', windowEnd: '' };
+    expect(queueAvailable(startOnly, at(1, 59))).toBe(false);
+    expect(queueAvailable(startOnly, at(2))).toBe(true);
+    expect(nextQueueBoundary(startOnly, at(1))).toBe(at(2).getTime());
+    const stopOnly = { ...base, windowStart: '', windowEnd: '08:00' };
+    expect(queueAvailable(stopOnly, at(7, 59))).toBe(true);
+    expect(queueAvailable(stopOnly, at(8))).toBe(false);
+  });
+  it('runs a manually started queue regardless of its schedule until it is stopped', () => {
+    const queue = {
+      id: 'q',
+      name: 'Q',
+      paused: false,
+      maxActive: 1,
+      speedLimit: 0,
+      windowStart: '22:00',
+      windowEnd: '23:00',
+      days: [],
+    };
+    const noon = new Date(2026, 9, 19, 12);
+    expect(queueAvailable(queue, noon)).toBe(false);
+    expect(queueAvailable({ ...queue, manualRun: true }, noon)).toBe(true);
+    expect(nextQueueBoundary({ ...queue, manualRun: true }, noon)).toBeNull();
+    expect(queueAvailable({ ...queue, manualRun: true, paused: true }, noon)).toBe(false);
+  });
   it('assigns an overnight window to its opening weekday and finds the next selected week', () => {
     const queue = {
       id: 'night',

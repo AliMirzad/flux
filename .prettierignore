@@ -5,3 +5,4 @@ releases
 test-results
 playwright-report
 package-lock.json
+src/engine/media/vendor/mux-transmuxer.js

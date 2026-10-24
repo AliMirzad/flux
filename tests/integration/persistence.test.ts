@@ -1,14 +1,68 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { IDBFactory, IDBDatabase as FakeDatabase } from 'fake-indexeddb';
+import { IDBFactory, IDBDatabase as FakeDatabase, IDBKeyRange } from 'fake-indexeddb';
 import { Repository } from '../../src/storage/repository';
 import { createJob } from '../../src/application/jobs';
 import { defaultSettings } from '../../src/domain/model';
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory());
+  vi.stubGlobal('IDBKeyRange', IDBKeyRange);
 });
 
 describe('durable metadata repository', () => {
+  it('commits logical media checkpoints with their jobs and removes only the selected job metadata', async () => {
+    const repository = new Repository();
+    const first = createJob({ url: 'https://example.org/first.m3u8', media: 'hls' });
+    const second = createJob({ url: 'https://example.org/second.m3u8', media: 'hls' });
+    const record = {
+      index: 0,
+      url: 'https://example.org/init.mp4',
+      finalUrl: 'https://example.org/init.mp4',
+      etag: '"stable"',
+      fullSize: 10,
+      bytes: 10,
+      sourceHash: 'a'.repeat(64),
+    };
+    first.segments = [{ start: 0, end: 9, hash: record.sourceHash }];
+    first.downloaded = 10;
+    await repository.putMediaCheckpoint(first, record);
+    await repository.putMediaCheckpoint(second, record);
+    const reopened = new Repository();
+    expect((await reopened.getJob(first.id))?.downloaded).toBe(10);
+    expect(await reopened.getMediaCheckpoints(first.id)).toEqual([record]);
+    await reopened.deleteJob(first.id);
+    expect(await repository.getJob(first.id)).toBeUndefined();
+    expect(await repository.getMediaCheckpoints(first.id)).toEqual([]);
+    expect(await repository.getMediaCheckpoints(second.id)).toEqual([record]);
+    await repository.clearMediaCheckpoints(second.id);
+    expect(await repository.getMediaCheckpoints(second.id)).toEqual([]);
+    expect(await repository.getJob(second.id)).toBeDefined();
+  });
+  it('does not partially commit batches or media progress when later data cannot be cloned', async () => {
+    const repository = new Repository();
+    const job = createJob({ url: 'https://example.org/one.m3u8', media: 'hls' });
+    const invalid = { ...job, note: (() => {}) as unknown as string };
+    await expect(repository.putJobs([job, invalid])).rejects.toMatchObject({
+      name: 'DataCloneError',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await repository.getJobs()).toEqual([]);
+    await repository.putJob(job);
+    const record = {
+      index: 0,
+      url: 'https://example.org/init.mp4',
+      finalUrl: 'https://example.org/init.mp4',
+      etag: null,
+      fullSize: 10,
+      bytes: 10,
+      sourceHash: (() => {}) as unknown as string,
+    };
+    await expect(
+      repository.putMediaCheckpoint({ ...job, downloaded: 10 }, record),
+    ).rejects.toMatchObject({ name: 'DataCloneError' });
+    expect((await repository.getJob(job.id))?.downloaded).toBe(0);
+    expect(await repository.getMediaCheckpoints(job.id)).toEqual([]);
+  });
   it('reopens a closed database before retrying transaction creation without replaying writes', async () => {
     const repository = new Repository();
     await repository.getSettings();

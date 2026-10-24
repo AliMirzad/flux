@@ -9,6 +9,7 @@ test('user-provided live URL transfers through Flux and matches an independent b
   test.setTimeout(180000);
   const root = await mkdtemp(join(tmpdir(), 'flux-live-'));
   let context: BrowserContext | undefined;
+  const networkFailures: { host: string; error: string }[] = [];
   try {
     const extension = join(root, 'extension');
     await cp(resolve('dist'), extension, { recursive: true });
@@ -28,6 +29,13 @@ test('user-provided live URL transfers through Flux and matches an independent b
         '--enable-unsafe-extension-debugging',
       ],
     });
+    context.on('requestfailed', (request) => {
+      if (networkFailures.length < 32)
+        networkFailures.push({
+          host: new URL(request.url()).hostname,
+          error: request.failure()?.errorText ?? 'Unknown network failure',
+        });
+    });
     let id: string;
     if (executablePath) {
       const cdp = await context.browser()!.newBrowserCDPSession();
@@ -41,6 +49,11 @@ test('user-provided live URL transfers through Flux and matches an independent b
     const page = await context.newPage();
     await page.goto(`chrome-extension://${id}/manager.html`);
     await expect(page.getByRole('heading', { name: 'All downloads.' })).toBeVisible();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByLabel('Automatically save finished downloads').uncheck();
+    await page.getByRole('button', { name: 'Save preferences', exact: true }).click();
+    await expect(page.getByText('Preferences saved')).toBeVisible();
+    await page.getByRole('button', { name: /All downloads/ }).click();
     if (process.env.FLUX_COLD_BACKGROUND === '1') {
       const cdp = await context.browser()!.newBrowserCDPSession();
       const targets = await cdp.send('Target.getTargets');
@@ -58,7 +71,7 @@ test('user-provided live URL transfers through Flux and matches an independent b
     await page.getByLabel('File name optional').fill('live-verified.zip');
     await page
       .getByRole('dialog')
-      .getByRole('button', { name: 'Add download', exact: true })
+      .getByRole('button', { name: 'Start Download', exact: true })
       .click();
     const getJob = async () => {
       const s = await page.evaluate(
@@ -67,12 +80,24 @@ test('user-provided live URL transfers through Flux and matches an independent b
       return s.jobs.find((job) => job.filename === 'live-verified.zip');
     };
     // Observe the manager DOM; snapshot polling would wake the background and mask its lifecycle bug.
-    await expect(
-      page
-        .locator('.download-card')
-        .filter({ has: page.getByRole('button', { name: 'live-verified.zip', exact: true }) })
-        .getByText('Ready to save', { exact: true }),
-    ).toBeVisible({ timeout: 120000 });
+    const card = page
+      .locator('.download-card')
+      .filter({ has: page.getByRole('button', { name: 'live-verified.zip', exact: true }) });
+    await Promise.race([
+      card
+        .getByText('Ready to save', { exact: true })
+        .waitFor({ state: 'visible', timeout: 120000 }),
+      card
+        .getByText('Failed', { exact: true })
+        .waitFor({ state: 'visible', timeout: 120000 })
+        .then(async () => {
+          // Inspect only after failure; background polling must not warm up the cold-start path.
+          const failed = await getJob();
+          throw new Error(
+            `Live transfer failed: ${failed?.error ?? 'Unknown failure'}. Network diagnostics: ${JSON.stringify(networkFailures)}`,
+          );
+        }),
+    ]);
     const job = (await getJob())!;
     expect(job.total).toBeGreaterThan(0);
     expect(job.sha256).toMatch(/^[a-f0-9]{64}$/);

@@ -3,6 +3,7 @@ import type { EngineOptions } from '../ports';
 import { checkAbort, sleep } from '../speed/control';
 import { maxManifestBytes, parseHls } from './hls';
 import type { HlsReview } from './types';
+import { pairHlsPlans } from './compose';
 export type MediaNetwork = Pick<
   EngineOptions,
   'signal' | 'fetcher' | 'redirectPolicy' | 'allowLocalForTests' | 'acquireHost'
@@ -26,6 +27,7 @@ export async function mediaRequest(url: string, init: RequestInit, options: Medi
     const finish = () => {
       if (!released) {
         released = true;
+        reader.releaseLock();
         release?.();
       }
     };
@@ -142,23 +144,58 @@ export async function fetchHls(url: string, options: MediaNetwork) {
     };
   }, options);
 }
-export async function reviewHls(url: string, options: MediaNetwork): Promise<HlsReview> {
+export async function reviewHls(
+  url: string,
+  options: MediaNetwork,
+  audioUrl?: string,
+): Promise<HlsReview> {
   const result = await fetchHls(url, options);
   if (result.manifest.kind === 'master')
-    return { kind: 'master', url: result.url, variants: result.manifest.variants };
-  const origins = [
-    ...new Set(
-      [result.url, result.manifest.init.url, ...result.manifest.parts.map((part) => part.url)].map(
-        (url) => new URL(url).origin,
-      ),
-    ),
-  ];
+    return {
+      kind: 'master',
+      url: result.url,
+      variants: result.manifest.variants,
+      audio: result.manifest.audio,
+    };
+  if (
+    audioUrl &&
+    new URL(result.url).protocol === 'https:' &&
+    new URL(audioUrl).protocol === 'http:'
+  )
+    throw new Error('An insecure HLS audio address was blocked.');
+  const audio = audioUrl ? await fetchHls(audioUrl, options) : undefined;
+  const paired = audio ? pairHlsPlans(result.manifest, audio.manifest) : undefined;
+  const manifests = [result, ...(audio ? [audio] : [])];
+  const resources = manifests.flatMap((item) => {
+    if (item.manifest.kind !== 'media') throw new Error('Select a completed HLS media rendition.');
+    return [
+      item.url,
+      ...(item.manifest.init
+        ? [
+            item.manifest.init.url,
+            ...(item.manifest.init.encryption ? [item.manifest.init.encryption.url] : []),
+          ]
+        : []),
+      ...item.manifest.parts.flatMap((part) => [
+        part.url,
+        ...(part.encryption ? [part.encryption.url] : []),
+      ]),
+    ];
+  });
+  const origins = [...new Set(resources.map((url) => new URL(url).origin))];
   if (origins.length > 64) throw new Error('This HLS rendition uses too many different hosts.');
   return {
     kind: 'media',
+    transport: result.manifest.transport,
+    encrypted: manifests.some(
+      (item) =>
+        item.manifest.kind === 'media' &&
+        (!!item.manifest.init?.encryption || item.manifest.parts.some((part) => !!part.encryption)),
+    ),
     url: result.url,
-    parts: result.manifest.parts.length,
-    duration: result.manifest.duration,
+    parts: paired ? paired.sourceParts : result.manifest.parts.length,
+    duration: paired ? paired.duration : result.manifest.duration,
     origins,
+    ...(audio ? { audioUrl: audio.url } : {}),
   };
 }

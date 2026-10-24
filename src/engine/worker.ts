@@ -69,17 +69,22 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   if (message.type === 'inspect-hls') {
     const controller = new AbortController();
     inspections.set(message.requestId, controller);
-    void reviewHls(message.url, {
-      signal: controller.signal,
-      acquireHost: (host, signal) => hostSlots.acquire(host, signal),
-      redirectPolicy: {
-        resolveRedirect: (from, location, signal) =>
-          networkDecision('redirect', from, location, signal),
-        prepareRequest: async (url, signal) => {
-          await networkDecision('prepare-request', url, null, signal);
+    void reviewHls(
+      message.url,
+      {
+        signal: controller.signal,
+        acquireHost: (host, signal) => hostSlots.acquire(host, signal),
+        redirectPolicy: {
+          credentialOrigin: message.useBrowserCookies ? new URL(message.url).origin : undefined,
+          resolveRedirect: (from, location, signal) =>
+            networkDecision('redirect', from, location, signal),
+          prepareRequest: async (url, signal) => {
+            await networkDecision('prepare-request', url, null, signal);
+          },
         },
       },
-    })
+      message.audioUrl,
+    )
       .then(
         (review) => send({ type: 'hls-review', requestId: message.requestId, review }),
         (error) =>
@@ -152,6 +157,7 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
           await budget.consume(bytes, signal);
         },
         redirectPolicy: {
+          credentialOrigin: job.useBrowserCookies ? new URL(job.url).origin : undefined,
           resolveRedirect: (from, location, signal) =>
             networkDecision('redirect', from, location, signal),
           prepareRequest: async (url, signal) => {

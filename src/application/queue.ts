@@ -35,15 +35,23 @@ export function nextWindowBoundary(
 /** In an overnight window, the selected weekday belongs to the window's opening day. */
 export function queueAvailable(queue: DownloadQueue, date = new Date()) {
   const now = date.getTime();
+  if (queue.paused) return false;
+  // "Start now" runs the queue immediately, ignoring its schedule until it finishes or is stopped.
+  if (queue.manualRun) return true;
   if (
-    queue.paused ||
     (queue.startsAt != null && now < queue.startsAt) ||
     (queue.stopsAt != null && now >= queue.stopsAt)
   )
     return false;
-  if (!inTimeWindow(queue, date)) return false;
   const openingDay = new Date(date);
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  // A start time alone opens the queue for the rest of that day (the engine then latches a run
+  // until the queue finishes); a stop time alone closes it for the rest of the day.
+  if (queue.windowStart && !queue.windowEnd) {
+    if (time < queue.windowStart) return false;
+  } else if (!queue.windowStart && queue.windowEnd) {
+    if (time >= queue.windowEnd) return false;
+  } else if (!inTimeWindow(queue, date)) return false;
   if (
     queue.windowStart &&
     queue.windowEnd &&
@@ -57,6 +65,7 @@ export function queueAvailable(queue: DownloadQueue, date = new Date()) {
 export function nextQueueBoundary(queue: DownloadQueue, date = new Date()): number | null {
   if (
     queue.paused ||
+    queue.manualRun ||
     queue.days?.length === 0 ||
     (queue.stopsAt != null && date.getTime() >= queue.stopsAt)
   )

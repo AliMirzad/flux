@@ -61,7 +61,7 @@ export async function request(
         ...init,
         signal: init.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal,
         redirect: 'manual',
-        credentials: 'omit',
+        credentials: policy?.credentialOrigin === new URL(current).origin ? 'include' : 'omit',
         referrerPolicy: 'no-referrer',
         cache: 'no-store',
       });

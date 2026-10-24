@@ -15,36 +15,34 @@ describe('speed and adaptive concurrency', () => {
     expect(meter.rate(1000)).toBe(3000);
     expect(meter.rate(5000)).toBe(0);
   });
-  it('ramps quickly to the limit while throughput scales and backs off after throttling', () => {
+  it('starts at the allowed maximum and keeps it while the server copes', () => {
     const controller = new AdaptiveController(16, 0);
-    expect(controller.sample(2000, false, 2499)).toBe(2);
-    expect(controller.sample(2000, false, 4000)).toBe(4);
-    expect(controller.sample(4000, false, 8000)).toBe(8);
-    expect(controller.sample(8000, false, 12000)).toBe(16);
-    expect(controller.sample(16000, false, 16000)).toBe(16);
-    expect(controller.sample(16000, false, 20000)).toBe(16);
-    expect(controller.sample(0, true, 21000)).toBe(8);
-    // A burst of failures from several ranges backs off only once.
-    expect(controller.sample(0, true, 21100)).toBe(8);
-    expect(controller.sample(8000, false, 30000)).toBe(8);
-    expect(controller.sample(8000, false, 36000)).toBe(9);
+    expect(controller.target).toBe(16);
+    expect(controller.sample(16000, false, 4000)).toBe(16);
+    expect(controller.sample(15000, false, 8000)).toBe(16);
+    expect(controller.sample(9000, false, 12000)).toBe(16);
   });
-  it('settles on the best measured count instead of drifting down on a plateau', () => {
-    const controller = new AdaptiveController(32, 0);
-    controller.sample(1000, false, 4000); // 2 -> 4
-    controller.sample(2000, false, 8000); // 4 -> 8
-    expect(controller.sample(2100, false, 12000)).toBe(9); // small gain: keep 8, probe 9
-    expect(controller.sample(2110, false, 16000)).toBe(8); // no gain: back to the best
-    expect(controller.sample(2100, false, 20000)).toBe(8); // holds during cooldown
-    expect(controller.sample(2100, false, 31000)).toBe(9); // re-probes, never drops below
-    expect(controller.sample(2090, false, 35000)).toBe(8);
+  it('walks down to the count a refusing server accepts and holds it', () => {
+    const controller = new AdaptiveController(16, 0);
+    // Ten of sixteen connections are refused while the others keep going.
+    for (let open = 16; open > 6; open--) controller.sample(0, true, 21000, open);
+    expect(controller.target).toBe(6);
+    expect(controller.sample(3000, false, 40000)).toBe(6); // refused count stays avoided
+    expect(controller.sample(3000, false, 90000)).toBe(8); // ceiling expired: probe again
+    expect(controller.sample(4000, false, 94000)).toBe(10);
+    expect(controller.sample(4000, false, 98000)).toBe(8); // no gain: back to the best
+    expect(controller.sample(4000, false, 105000)).toBe(8); // cooldown
+  });
+  it('costs a single connection for a lone interruption', () => {
+    const controller = new AdaptiveController(16, 0);
+    expect(controller.sample(0, true, 1000, 16)).toBe(15);
   });
   it('waits for the requested connections to open before judging them', () => {
     const controller = new AdaptiveController(8, 0);
-    expect(controller.sample(1000, false, 4000)).toBe(4);
-    expect(controller.sample(1000, false, 8000, 2)).toBe(4);
-    expect(controller.sample(2000, false, 9000, 4)).toBe(4);
-    expect(controller.sample(2000, false, 13000, 4)).toBe(8);
+    expect(controller.sample(0, true, 0, 8)).toBe(7);
+    expect(controller.sample(1000, false, 61000, 5)).toBe(7);
+    expect(controller.sample(1000, false, 62000, 7)).toBe(7);
+    expect(controller.sample(1000, false, 65000, 7)).toBe(8);
   });
   it('shares bandwidth reservations between concurrent readers', async () => {
     vi.useFakeTimers();
